@@ -12,6 +12,8 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from utils.lang import HISTORY, NAV, BRAND
+
 st.set_page_config(
     page_title="歷史紀錄 | HK-AICOS",
     page_icon="🕘",

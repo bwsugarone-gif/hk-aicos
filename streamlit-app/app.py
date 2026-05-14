@@ -12,6 +12,8 @@ import os
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from utils.lang import HOME, NAV, BRAND, ANALYSIS_TYPES
+
 # ── 載入 .env（如存在）──────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv

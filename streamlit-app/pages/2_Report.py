@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report
+from utils.lang import REPORT, NAV, BRAND
 
 st.set_page_config(
     page_title="分析報告 | HK-AICOS",

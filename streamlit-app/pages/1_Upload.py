@@ -30,6 +30,7 @@ from utils.agent_router import get_all_analysis_types, get_routing, build_analys
 from utils.risk_classifier import classify_risk, get_risk_info
 from utils.file_loader import process_uploaded_file, is_allowed_file
 from utils.rag_reader import build_rag_context
+from utils.lang import UPLOAD, ANALYSIS_TYPES, NAV, BRAND
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -190,15 +191,8 @@ st.markdown('<div class="step-box">', unsafe_allow_html=True)
 st.markdown('<div class="step-label">第二步</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-title">🎯 選擇分析類型</div>', unsafe_allow_html=True)
 
-# 客戶友善的分析類型顯示
-ANALYSIS_DISPLAY = {
-    "安全風險分析": ("🦺", "工地安全分析", "分析工地相片，識別安全風險及不安全行為"),
-    "法規 / 合規檢查": ("⚖️", "法規合規檢查", "對照香港法規，初步檢查工程合規情況"),
-    "圖紙 / CAP / MIB 分析": ("📐", "圖紙 / 文件分析", "分析圖紙及工程文件，提取重點資料"),
-    "臨時設施位置分析": ("🏗️", "臨時設施分析", "分析天秤、工人籠、臨時平台等位置及風險"),
-    "PM 綜合分析": ("📋", "PM 工程分析", "綜合分析工程進度、資源及風險"),
-    "成本 / 工期影響分析": ("💰", "成本及工期分析", "初步評估 VO、成本超支及工期延誤影響"),
-}
+# 客戶友善的分析類型顯示 — 從 lang.py 統一管理
+ANALYSIS_DISPLAY = ANALYSIS_TYPES
 
 # 預設選擇
 if "selected_analysis_type" not in st.session_state:
