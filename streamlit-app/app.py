@@ -15,7 +15,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 # ── 載入 .env（如存在）──────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
+    # 先嘗試 streamlit-app/.env，再嘗試 project root .env
+    _env1 = Path(__file__).parent / ".env"
+    _env2 = Path(__file__).parent.parent / ".env"
+    if _env1.exists():
+        load_dotenv(_env1)
+    elif _env2.exists():
+        load_dotenv(_env2)
+    else:
+        load_dotenv()  # fallback: search default locations
 except ImportError:
     pass
 

@@ -14,7 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent.parent / ".env")
+    # 先嘗試 streamlit-app/.env，再嘗試 project root .env
+    _env1 = Path(__file__).parent.parent / ".env"
+    _env2 = Path(__file__).parent.parent.parent / ".env"
+    if _env1.exists():
+        load_dotenv(_env1)
+    elif _env2.exists():
+        load_dotenv(_env2)
+    else:
+        load_dotenv()
 except ImportError:
     pass
 
@@ -244,18 +252,43 @@ st.markdown('<div class="step-label">第四步</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-title">🚀 生成分析報告</div>', unsafe_allow_html=True)
 
 # API Key — 從環境變數或 secrets 取得，不向客戶顯示
-def _get_api_key() -> str:
-    # 1. Streamlit secrets
+def _get_api_key() -> tuple:
+    """
+    Returns (provider, api_key).
+    provider: "anthropic" | "deepseek"
+    Checks in order: Streamlit secrets → environment variables → session state.
+    Never exposes key values to the UI.
+    """
+    # 1. Streamlit secrets — Anthropic
     try:
-        return st.secrets["ANTHROPIC_API_KEY"]
+        key = st.secrets["ANTHROPIC_API_KEY"]
+        if key:
+            return ("anthropic", key)
     except Exception:
         pass
-    # 2. 環境變數
+
+    # 2. Streamlit secrets — DeepSeek
+    try:
+        key = st.secrets["DEEPSEEK_API_KEY"]
+        if key:
+            return ("deepseek", key)
+    except Exception:
+        pass
+
+    # 3. 環境變數 — Anthropic
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if key:
-        return key
-    # 3. Session state（Admin 模式下設定）
-    return st.session_state.get("_api_key", "")
+        return ("anthropic", key)
+
+    # 4. 環境變數 — DeepSeek
+    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    if key:
+        return ("deepseek", key)
+
+    # 5. Session state（Admin 模式下設定）
+    key = st.session_state.get("_api_key", "")
+    provider = st.session_state.get("_api_provider", "anthropic")
+    return (provider, key)
 
 generate_btn = st.button("🚀 生成分析報告", type="primary", use_container_width=True)
 
@@ -277,12 +310,12 @@ if generate_btn:
             rag_context=rag_context,
         )
         professionals = get_required_professionals(selected_type, question, file_description)
-        api_key = _get_api_key()
+        provider, api_key = _get_api_key()
 
         with st.spinner("正在分析中，請稍候..."):
             try:
                 if not api_key:
-                    # 無 API Key — 顯示友善提示，不暴露技術細節
+                    # 無分析服務 — 顯示友善提示，不暴露技術細節
                     st.warning("⚠️ 系統暫時未能連接分析服務。請聯絡 Buildway Tech 取得協助。")
                     analysis_result = (
                         "## 工程分析\n\n"
@@ -293,7 +326,27 @@ if generate_btn:
                         "## 需要人工確認事項\n\n"
                         "- 本次分析需由合資格專業人士親身評估確認"
                     )
+
+                elif provider == "deepseek":
+                    # DeepSeek — OpenAI-compatible API
+                    from openai import OpenAI as _OpenAI
+                    ds_client = _OpenAI(
+                        api_key=api_key,
+                        base_url="https://api.deepseek.com",
+                    )
+                    # DeepSeek 唔支援 vision，只傳文字 prompt
+                    ds_prompt = full_prompt
+                    if file_data_to_use and file_data_to_use["type"] == "image":
+                        ds_prompt = f"[圖片已上載：{file_name}]\n\n{full_prompt}"
+                    response = ds_client.chat.completions.create(
+                        model="deepseek-chat",
+                        max_tokens=4096,
+                        messages=[{"role": "user", "content": ds_prompt}],
+                    )
+                    analysis_result = response.choices[0].message.content
+
                 else:
+                    # Anthropic (default)
                     import anthropic
                     client = anthropic.Anthropic(api_key=api_key)
 
