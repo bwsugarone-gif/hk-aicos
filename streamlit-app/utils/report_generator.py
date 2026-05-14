@@ -2,7 +2,7 @@
 report_generator.py
 HK-AICOS Phase 2.0 - PDF Report Generator (Client Version)
 
-Professional PDF report with Traditional Chinese support.
+Professional PDF report with Traditional Chinese support using MSung-Light.
 No demo/API/backend text exposed to clients.
 
 Buildway Tech (HK) Limited
@@ -22,47 +22,12 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 # ── Font Setup ────────────────────────────────────────────────────────────────
-FONTS_DIR = Path(__file__).parent.parent / "assets" / "fonts"
-FONT_REGISTERED = False
-CHINESE_FONT = "Helvetica"  # fallback
-
-def _register_chinese_font():
-    """Try to register a CJK font for Traditional Chinese support."""
-    global FONT_REGISTERED, CHINESE_FONT
-
-    if FONT_REGISTERED:
-        return
-
-    # Priority list of font files to try
-    candidates = [
-        ("NotoSansTC", FONTS_DIR / "NotoSansTC-Regular.ttf"),
-        ("NotoSansTC", FONTS_DIR / "NotoSansCJKtc-Regular.ttf"),
-        ("NotoSansTC", FONTS_DIR / "NotoSansCJK-Regular.ttc"),
-        ("SourceHanSansTC", FONTS_DIR / "SourceHanSansTC-Regular.otf"),
-        # System fonts on Windows
-        ("MicrosoftJhengHei", Path("C:/Windows/Fonts/msjh.ttc")),
-        ("MicrosoftJhengHei", Path("C:/Windows/Fonts/msjhbd.ttc")),
-        ("MicrosoftYaHei", Path("C:/Windows/Fonts/msyh.ttc")),
-        ("SimSun", Path("C:/Windows/Fonts/simsun.ttc")),
-        ("SimHei", Path("C:/Windows/Fonts/simhei.ttf")),
-    ]
-
-    for font_name, font_path in candidates:
-        if font_path.exists():
-            try:
-                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
-                CHINESE_FONT = font_name
-                FONT_REGISTERED = True
-                return
-            except Exception:
-                continue
-
-    # No CJK font found — will use Helvetica (Chinese chars may not render)
-    FONT_REGISTERED = True
-
+# Register MSung-Light (built-in CID font for Traditional Chinese)
+pdfmetrics.registerFont(UnicodeCIDFont("MSung-Light"))
+CHINESE_FONT = "MSung-Light"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 DARK_BLUE = colors.HexColor("#1a3a5c")
@@ -81,11 +46,6 @@ RISK_BG_COLORS = {
     "低風險": colors.HexColor("#d4edda"),
     "中風險": colors.HexColor("#fff3cd"),
     "高風險": colors.HexColor("#f8d7da"),
-}
-RISK_EMOJIS = {
-    "低風險": "[ 低風險 ]",
-    "中風險": "[ 中風險 ]",
-    "高風險": "[ 高風險 ]",
 }
 
 DISCLAIMER_ZH = (
@@ -119,8 +79,7 @@ def _build_styles(font: str) -> dict:
         "body": ps("Body", fontSize=10, leading=16, spaceAfter=4,
                    alignment=TA_JUSTIFY),
         "bullet": ps("Bullet", fontSize=10, leading=16, leftIndent=14, spaceAfter=3),
-        "meta_label": ps("MetaLabel", fontSize=9, textColor=DARK_BLUE,
-                         fontName=font),
+        "meta_label": ps("MetaLabel", fontSize=9, textColor=DARK_BLUE),
         "meta_value": ps("MetaValue", fontSize=9, textColor=colors.HexColor("#333333")),
         "risk_text": ps("RiskText", fontSize=14, alignment=TA_CENTER,
                         spaceAfter=2, leading=18),
@@ -163,7 +122,6 @@ def generate_pdf_report(
     Generate a professional PDF report and return as bytes.
     All content is in Traditional Chinese. No backend/API text exposed.
     """
-    _register_chinese_font()
     font = CHINESE_FONT
     styles = _build_styles(font)
 
@@ -173,7 +131,6 @@ def generate_pdf_report(
 
     risk_color = RISK_COLORS.get(risk_level, colors.HexColor("#e67e00"))
     risk_bg = RISK_BG_COLORS.get(risk_level, colors.HexColor("#fff3cd"))
-    risk_label = RISK_EMOJIS.get(risk_level, risk_level)
 
     buffer = io.BytesIO()
     now = datetime.now()
@@ -194,11 +151,6 @@ def generate_pdf_report(
     W = 174 * mm  # usable width
 
     # ── Cover Header ──────────────────────────────────────────────────────────
-    header_data = [[
-        _p("Buildway Tech (HK) Limited", styles["company"]),
-        _p("HK-AICOS  工程分析報告", styles["title"]),
-        _p("Hong Kong AI Construction Operating System", styles["subtitle"]),
-    ]]
     header_table = Table([[
         _p("Buildway Tech (HK) Limited", styles["company"]),
     ]], colWidths=[W])
