@@ -13,6 +13,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.lang import HISTORY, NAV, BRAND
+from utils.logo_helper import sidebar_logo
 
 st.set_page_config(
     page_title="歷史紀錄 | HK-AICOS",
@@ -52,13 +53,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding: 1rem 0 0.5rem 0;">
-        <div style="font-size:2.5rem;">🏗️</div>
-        <div style="font-size:1.1rem; font-weight:700;">Buildway Tech</div>
-        <div style="font-size:0.85rem; color:#c9a84c;">(HK) Limited</div>
-    </div>
-    """, unsafe_allow_html=True)
+    sidebar_logo()
     st.markdown("---")
     st.page_link("app.py", label="🏠 首頁")
     st.page_link("pages/1_Upload.py", label="📤 上載分析")
