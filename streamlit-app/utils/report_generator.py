@@ -1,8 +1,11 @@
 """
 report_generator.py
-HK-AICOS Phase 2.0 - PDF Report Generator
+HK-AICOS Phase 2.0 - PDF Report Generator (Client Version)
 
-Generates mobile-friendly PDF reports using reportlab.
+Professional PDF report with Traditional Chinese support.
+No demo/API/backend text exposed to clients.
+
+Buildway Tech (HK) Limited
 """
 
 import io
@@ -15,126 +18,138 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, PageBreak,
+    HRFlowable,
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+# ── Font Setup ────────────────────────────────────────────────────────────────
+FONTS_DIR = Path(__file__).parent.parent / "assets" / "fonts"
+FONT_REGISTERED = False
+CHINESE_FONT = "Helvetica"  # fallback
+
+def _register_chinese_font():
+    """Try to register a CJK font for Traditional Chinese support."""
+    global FONT_REGISTERED, CHINESE_FONT
+
+    if FONT_REGISTERED:
+        return
+
+    # Priority list of font files to try
+    candidates = [
+        ("NotoSansTC", FONTS_DIR / "NotoSansTC-Regular.ttf"),
+        ("NotoSansTC", FONTS_DIR / "NotoSansCJKtc-Regular.ttf"),
+        ("NotoSansTC", FONTS_DIR / "NotoSansCJK-Regular.ttc"),
+        ("SourceHanSansTC", FONTS_DIR / "SourceHanSansTC-Regular.otf"),
+        # System fonts on Windows
+        ("MicrosoftJhengHei", Path("C:/Windows/Fonts/msjh.ttc")),
+        ("MicrosoftJhengHei", Path("C:/Windows/Fonts/msjhbd.ttc")),
+        ("MicrosoftYaHei", Path("C:/Windows/Fonts/msyh.ttc")),
+        ("SimSun", Path("C:/Windows/Fonts/simsun.ttc")),
+        ("SimHei", Path("C:/Windows/Fonts/simhei.ttf")),
+    ]
+
+    for font_name, font_path in candidates:
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+                CHINESE_FONT = font_name
+                FONT_REGISTERED = True
+                return
+            except Exception:
+                continue
+
+    # No CJK font found — will use Helvetica (Chinese chars may not render)
+    FONT_REGISTERED = True
+
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+DARK_BLUE = colors.HexColor("#1a3a5c")
+MID_BLUE = colors.HexColor("#2d5a8e")
+GOLD = colors.HexColor("#c9a84c")
+LIGHT_BLUE_BG = colors.HexColor("#e8f0fe")
+LIGHT_GREY = colors.HexColor("#f4f6f9")
+BORDER_GREY = colors.HexColor("#cccccc")
+
+RISK_COLORS = {
+    "低風險": colors.HexColor("#28a745"),
+    "中風險": colors.HexColor("#e67e00"),
+    "高風險": colors.HexColor("#dc3545"),
+}
+RISK_BG_COLORS = {
+    "低風險": colors.HexColor("#d4edda"),
+    "中風險": colors.HexColor("#fff3cd"),
+    "高風險": colors.HexColor("#f8d7da"),
+}
+RISK_EMOJIS = {
+    "低風險": "[ 低風險 ]",
+    "中風險": "[ 中風險 ]",
+    "高風險": "[ 高風險 ]",
+}
+
+DISCLAIMER_ZH = (
+    "本報告為 AI 輔助工程分析結果，只供初步參考及內部評估用途。\n\n"
+    "所有涉及結構、安全、法規、消防、電力、水務、公共道路、掘路、"
+    "高風險工序、合約或法律責任之事項，必須由香港合資格專業人士最終確認。\n\n"
+    "Buildway Tech (HK) Limited 不會取代認可人士、註冊工程師、安全主任、"
+    "註冊電業工程人員、持牌水喉匠、法律專業人士或相關政府部門之正式審批。"
+)
+
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
-# Risk level colors
-RISK_COLORS = {
-    "低風險":  colors.HexColor("#28a745"),
-    "中風險":  colors.HexColor("#ffc107"),
-    "高風險":  colors.HexColor("#fd7e14"),
-    "極高風險": colors.HexColor("#dc3545"),
-}
 
-RISK_BG_COLORS = {
-    "低風險":  colors.HexColor("#d4edda"),
-    "中風險":  colors.HexColor("#fff3cd"),
-    "高風險":  colors.HexColor("#fde8d8"),
-    "極高風險": colors.HexColor("#f8d7da"),
-}
+# ── Style Builder ─────────────────────────────────────────────────────────────
+def _build_styles(font: str) -> dict:
+    base = getSampleStyleSheet()
 
-DISCLAIMER_TEXT = """
-⚠ 本分析只作 AI 輔助參考用途。
-
-如涉及香港法例、政府部門要求、結構安全、消防安全、電力工程、水務工程、
-公共道路、掘路工程、高風險工序或法律責任，必須由香港合資格專業人士、
-安全主任、認可人士 (AP)、註冊工程師 (RSE/RGE)、
-註冊電業工程人員 (REW) 或相關專業人士確認。
-
-AI-assisted analysis only. Final decision shall be confirmed by qualified professionals.
-"""
-
-
-def _build_styles():
-    """Build custom paragraph styles."""
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "HKTitle",
-        parent=styles["Title"],
-        fontSize=20,
-        textColor=colors.HexColor("#1a3a5c"),
-        spaceAfter=6,
-        alignment=TA_CENTER,
-    )
-    subtitle_style = ParagraphStyle(
-        "HKSubtitle",
-        parent=styles["Normal"],
-        fontSize=12,
-        textColor=colors.HexColor("#4a6fa5"),
-        spaceAfter=4,
-        alignment=TA_CENTER,
-    )
-    section_header_style = ParagraphStyle(
-        "HKSection",
-        parent=styles["Heading2"],
-        fontSize=13,
-        textColor=colors.HexColor("#1a3a5c"),
-        spaceBefore=12,
-        spaceAfter=4,
-        borderPad=4,
-    )
-    body_style = ParagraphStyle(
-        "HKBody",
-        parent=styles["Normal"],
-        fontSize=11,
-        leading=16,
-        spaceAfter=6,
-        alignment=TA_JUSTIFY,
-    )
-    bullet_style = ParagraphStyle(
-        "HKBullet",
-        parent=styles["Normal"],
-        fontSize=11,
-        leading=16,
-        leftIndent=16,
-        spaceAfter=3,
-    )
-    disclaimer_style = ParagraphStyle(
-        "HKDisclaimer",
-        parent=styles["Normal"],
-        fontSize=9,
-        textColor=colors.HexColor("#721c24"),
-        leading=14,
-        spaceAfter=4,
-    )
-    footer_style = ParagraphStyle(
-        "HKFooter",
-        parent=styles["Normal"],
-        fontSize=8,
-        textColor=colors.grey,
-        alignment=TA_CENTER,
-    )
+    def ps(name, parent_name="Normal", **kwargs):
+        return ParagraphStyle(name, parent=base[parent_name], fontName=font, **kwargs)
 
     return {
-        "title": title_style,
-        "subtitle": subtitle_style,
-        "section": section_header_style,
-        "body": body_style,
-        "bullet": bullet_style,
-        "disclaimer": disclaimer_style,
-        "footer": footer_style,
+        "company": ps("Company", fontSize=11, textColor=colors.white,
+                      alignment=TA_CENTER, spaceAfter=2),
+        "title": ps("Title", fontSize=18, textColor=colors.white,
+                    alignment=TA_CENTER, spaceAfter=4, leading=24),
+        "subtitle": ps("Subtitle", fontSize=11, textColor=colors.HexColor("#c9d8f0"),
+                       alignment=TA_CENTER, spaceAfter=2),
+        "section": ps("Section", "Heading2", fontSize=12, textColor=DARK_BLUE,
+                      spaceBefore=10, spaceAfter=4, leading=16),
+        "body": ps("Body", fontSize=10, leading=16, spaceAfter=4,
+                   alignment=TA_JUSTIFY),
+        "bullet": ps("Bullet", fontSize=10, leading=16, leftIndent=14, spaceAfter=3),
+        "meta_label": ps("MetaLabel", fontSize=9, textColor=DARK_BLUE,
+                         fontName=font),
+        "meta_value": ps("MetaValue", fontSize=9, textColor=colors.HexColor("#333333")),
+        "risk_text": ps("RiskText", fontSize=14, alignment=TA_CENTER,
+                        spaceAfter=2, leading=18),
+        "risk_sub": ps("RiskSub", fontSize=9, alignment=TA_CENTER,
+                       textColor=colors.HexColor("#555555")),
+        "disclaimer": ps("Disclaimer", fontSize=8, textColor=colors.HexColor("#721c24"),
+                         leading=13, spaceAfter=3),
+        "footer": ps("Footer", fontSize=7, textColor=colors.grey,
+                     alignment=TA_CENTER),
+        "warn": ps("Warn", fontSize=10, leading=15,
+                   textColor=colors.HexColor("#856404"),
+                   backColor=colors.HexColor("#fff3cd")),
     }
 
 
-def _safe_para(text: str, style) -> Paragraph:
-    """Create a Paragraph, escaping any problematic characters."""
-    # Basic XML escaping for reportlab
-    text = str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    # Restore intentional line breaks
+# ── Safe Paragraph ────────────────────────────────────────────────────────────
+def _p(text: str, style) -> Paragraph:
+    """Escape XML special chars and convert newlines for ReportLab."""
+    text = str(text)
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = text.replace("\n", "<br/>")
     try:
         return Paragraph(text, style)
     except Exception:
-        return Paragraph(str(text).encode("ascii", "replace").decode(), style)
+        safe = text.encode("ascii", "replace").decode()
+        return Paragraph(safe, style)
 
 
+# ── Main Generator ────────────────────────────────────────────────────────────
 def generate_pdf_report(
     analysis_type: str,
     question: str,
@@ -145,147 +160,175 @@ def generate_pdf_report(
     project_ref: str = "",
 ) -> bytes:
     """
-    Generate a PDF report and return as bytes.
-
-    Args:
-        analysis_type: The type of analysis performed
-        question: The user's question
-        risk_level: Risk level string (低風險/中風險/高風險/極高風險)
-        analysis_result: The full AI analysis text
-        filename_hint: Original uploaded filename
-        professionals_required: List of professionals needed for confirmation
-        project_ref: Optional project reference number
-
-    Returns:
-        PDF content as bytes
+    Generate a professional PDF report and return as bytes.
+    All content is in Traditional Chinese. No backend/API text exposed.
     """
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=20 * mm,
-        bottomMargin=20 * mm,
-    )
+    _register_chinese_font()
+    font = CHINESE_FONT
+    styles = _build_styles(font)
 
-    styles = _build_styles()
-    story = []
+    # Normalise risk level to 3-tier
+    if risk_level not in ("低風險", "中風險", "高風險"):
+        risk_level = "高風險"
+
+    risk_color = RISK_COLORS.get(risk_level, colors.HexColor("#e67e00"))
+    risk_bg = RISK_BG_COLORS.get(risk_level, colors.HexColor("#fff3cd"))
+    risk_label = RISK_EMOJIS.get(risk_level, risk_level)
+
+    buffer = io.BytesIO()
     now = datetime.now()
     report_id = f"RPT-{now.strftime('%Y%m%d-%H%M%S')}"
 
-    # ── Cover / Header ──────────────────────────────────────────────
-    story.append(Spacer(1, 8 * mm))
-    story.append(_safe_para("Buildway Tech (HK) Limited", styles["title"]))
-    story.append(_safe_para("HK-AICOS  |  AI Construction Analysis Report", styles["subtitle"]))
-    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a3a5c")))
-    story.append(Spacer(1, 4 * mm))
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm,
+        title=f"HK-AICOS 工程分析報告 {report_id}",
+        author="Buildway Tech (HK) Limited",
+    )
 
-    # Report metadata table
-    meta_data = [
-        ["Report ID", report_id, "Date", now.strftime("%Y-%m-%d %H:%M")],
-        ["Analysis Type", analysis_type, "Project Ref", project_ref or "—"],
-        ["File", filename_hint or "—", "Risk Level", risk_level],
+    story = []
+    W = 174 * mm  # usable width
+
+    # ── Cover Header ──────────────────────────────────────────────────────────
+    header_data = [[
+        _p("Buildway Tech (HK) Limited", styles["company"]),
+        _p("HK-AICOS  工程分析報告", styles["title"]),
+        _p("Hong Kong AI Construction Operating System", styles["subtitle"]),
+    ]]
+    header_table = Table([[
+        _p("Buildway Tech (HK) Limited", styles["company"]),
+    ]], colWidths=[W])
+    header_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), DARK_BLUE),
+        ("PADDING", (0, 0), (-1, -1), 6),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+
+    title_table = Table([[
+        _p("HK-AICOS  工程分析報告", styles["title"]),
+    ]], colWidths=[W])
+    title_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), MID_BLUE),
+        ("PADDING", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+
+    gold_bar = Table([[""]], colWidths=[W], rowHeights=[3])
+    gold_bar.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), GOLD),
+        ("PADDING", (0, 0), (-1, -1), 0),
+    ]))
+
+    story.append(header_table)
+    story.append(title_table)
+    story.append(gold_bar)
+    story.append(Spacer(1, 5 * mm))
+
+    # ── Metadata Table ────────────────────────────────────────────────────────
+    meta_rows = [
+        ["報告編號", report_id, "日期", now.strftime("%Y-%m-%d  %H:%M")],
+        ["分析類型", analysis_type, "工程編號", project_ref or "—"],
+        ["上載文件", filename_hint or "—", "風險級別", risk_level],
     ]
-    risk_color = RISK_COLORS.get(risk_level, colors.grey)
-    risk_bg = RISK_BG_COLORS.get(risk_level, colors.white)
 
-    meta_table = Table(meta_data, colWidths=[35 * mm, 65 * mm, 30 * mm, 45 * mm])
+    col_w = [22 * mm, 65 * mm, 22 * mm, 65 * mm]
+    meta_table = Table(meta_rows, colWidths=col_w)
     meta_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f0fe")),
-        ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#e8f0fe")),
+        ("FONTNAME", (0, 0), (-1, -1), font),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (0, -1), LIGHT_BLUE_BG),
+        ("BACKGROUND", (2, 0), (2, -1), LIGHT_BLUE_BG),
+        ("TEXTCOLOR", (0, 0), (0, -1), DARK_BLUE),
+        ("TEXTCOLOR", (2, 0), (2, -1), DARK_BLUE),
+        ("FONTNAME", (0, 0), (0, -1), font),
+        ("FONTNAME", (2, 0), (2, -1), font),
         ("BACKGROUND", (3, 2), (3, 2), risk_bg),
         ("TEXTCOLOR", (3, 2), (3, 2), risk_color),
-        ("FONTNAME", (3, 2), (3, 2), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("FONTNAME", (3, 2), (3, 2), font),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("PADDING", (0, 0), (-1, -1), 4),
+        ("PADDING", (0, 0), (-1, -1), 5),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 5 * mm))
 
-    # ── Question ────────────────────────────────────────────────────
-    story.append(_safe_para("Question / Input", styles["section"]))
-    story.append(_safe_para(question, styles["body"]))
+    # ── Question ──────────────────────────────────────────────────────────────
+    story.append(_p("問題摘要", styles["section"]))
+    story.append(HRFlowable(width=W, thickness=1, color=GOLD))
+    story.append(Spacer(1, 2 * mm))
+    story.append(_p(question, styles["body"]))
     story.append(Spacer(1, 4 * mm))
 
-    # ── Risk Level Banner ───────────────────────────────────────────
-    risk_emojis = {"低風險": "🟢", "中風險": "🟡", "高風險": "🔴", "極高風險": "⚫"}
-    risk_emoji = risk_emojis.get(risk_level, "")
-    risk_banner_data = [[f"Risk Level  /  風險等級:  {risk_level}  {risk_emoji}"]]
-    risk_banner = Table(risk_banner_data, colWidths=[175 * mm])
+    # ── Risk Banner ───────────────────────────────────────────────────────────
+    risk_banner = Table(
+        [[_p(risk_level, ParagraphStyle(
+            "RB", fontName=font, fontSize=16, alignment=TA_CENTER,
+            textColor=risk_color, leading=20,
+        ))]],
+        colWidths=[W],
+    )
     risk_banner.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), risk_bg),
-        ("TEXTCOLOR", (0, 0), (-1, -1), risk_color),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 13),
+        ("BOX", (0, 0), (-1, -1), 2, risk_color),
+        ("PADDING", (0, 0), (-1, -1), 10),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("PADDING", (0, 0), (-1, -1), 8),
-        ("BOX", (0, 0), (-1, -1), 1.5, risk_color),
     ]))
     story.append(risk_banner)
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 5 * mm))
 
-    # ── Analysis Result ─────────────────────────────────────────────
-    story.append(_safe_para("Analysis Report  /  分析報告", styles["section"]))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#aaaaaa")))
+    # ── Analysis Result ───────────────────────────────────────────────────────
+    story.append(_p("工程分析報告", styles["section"]))
+    story.append(HRFlowable(width=W, thickness=1, color=GOLD))
     story.append(Spacer(1, 3 * mm))
 
-    # Split analysis result into lines for better formatting
     for line in analysis_result.split("\n"):
         line = line.strip()
         if not line:
             story.append(Spacer(1, 2 * mm))
-        elif line.startswith("###"):
-            story.append(_safe_para(line.lstrip("#").strip(), styles["section"]))
-        elif line.startswith("##"):
-            story.append(_safe_para(line.lstrip("#").strip(), styles["section"]))
+        elif line.startswith("###") or line.startswith("##"):
+            story.append(_p(line.lstrip("#").strip(), styles["section"]))
         elif line.startswith("-") or line.startswith("•"):
-            story.append(_safe_para("• " + line.lstrip("-•").strip(), styles["bullet"]))
-        elif line.startswith("⚠") or line.startswith("WARNING"):
-            warn_style = ParagraphStyle(
-                "warn", parent=styles["body"],
-                textColor=colors.HexColor("#856404"),
-                backColor=colors.HexColor("#fff3cd"),
-            )
-            story.append(_safe_para(line, warn_style))
+            story.append(_p("• " + line.lstrip("-•").strip(), styles["bullet"]))
+        elif line.startswith("⚠") or line.upper().startswith("WARNING"):
+            story.append(_p(line, styles["warn"]))
         else:
-            story.append(_safe_para(line, styles["body"]))
+            story.append(_p(line, styles["body"]))
 
-    story.append(Spacer(1, 6 * mm))
+    story.append(Spacer(1, 5 * mm))
 
-    # ── Professionals Required ──────────────────────────────────────
+    # ── Professionals Required ────────────────────────────────────────────────
     if professionals_required:
-        story.append(_safe_para("Professional Confirmation Required  /  需要專業人士確認", styles["section"]))
+        story.append(_p("需要專業人士確認", styles["section"]))
+        story.append(HRFlowable(width=W, thickness=1, color=GOLD))
+        story.append(Spacer(1, 2 * mm))
         for prof in professionals_required:
-            story.append(_safe_para(f"• {prof}", styles["bullet"]))
+            story.append(_p(f"• {prof}", styles["bullet"]))
         story.append(Spacer(1, 4 * mm))
 
-    # ── Disclaimer ──────────────────────────────────────────────────
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#dc3545")))
-    story.append(Spacer(1, 3 * mm))
-    disclaimer_box_data = [[DISCLAIMER_TEXT.strip()]]
-    disclaimer_table = Table(disclaimer_box_data, colWidths=[175 * mm])
+    # ── Disclaimer ────────────────────────────────────────────────────────────
+    story.append(HRFlowable(width=W, thickness=1.5, color=colors.HexColor("#dc3545")))
+    story.append(Spacer(1, 2 * mm))
+
+    disclaimer_table = Table(
+        [[_p(DISCLAIMER_ZH, styles["disclaimer"])]],
+        colWidths=[W],
+    )
     disclaimer_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8d7da")),
-        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#721c24")),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("PADDING", (0, 0), (-1, -1), 8),
         ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#dc3545")),
+        ("PADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(disclaimer_table)
 
-    # ── Final Page Footer ───────────────────────────────────────────
-    story.append(Spacer(1, 6 * mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
-    story.append(_safe_para(
-        f"Generated by HK-AICOS Phase 2.0  |  Buildway Tech (HK) Limited  |  {now.strftime('%Y-%m-%d %H:%M')}",
-        styles["footer"],
-    ))
-    story.append(_safe_para(
-        "AI-assisted analysis only. Final decision shall be confirmed by qualified professionals.",
+    # ── Footer ────────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 5 * mm))
+    story.append(HRFlowable(width=W, thickness=0.5, color=BORDER_GREY))
+    story.append(_p(
+        f"Generated by HK-AICOS  |  Buildway Tech (HK) Limited  |  {now.strftime('%Y-%m-%d %H:%M')}",
         styles["footer"],
     ))
 
