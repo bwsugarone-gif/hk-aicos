@@ -309,17 +309,23 @@ if generate_btn:
         with st.spinner("正在分析中，請稍候..."):
             try:
                 if not api_key:
-                    # 無分析服務 — 顯示友善提示，不暴露技術細節
-                    st.warning("⚠️ 系統暫時未能連接分析服務。請聯絡 Buildway Tech 取得協助。")
-                    analysis_result = (
-                        "## 工程分析\n\n"
-                        "分析服務暫時未能使用，請聯絡 Buildway Tech (HK) Limited 取得協助。\n\n"
-                        "## 建議跟進事項\n\n"
-                        "- 請聯絡 Buildway Tech (HK) Limited 安排人工評估\n"
-                        "- 如屬緊急安全事項，請即時通知現場安全主任\n\n"
-                        "## 需要人工確認事項\n\n"
-                        "- 本次分析需由合資格專業人士親身評估確認"
+                    # 無 API Key — 顯示診斷資訊
+                    _secrets_keys = []
+                    try:
+                        _secrets_keys = list(st.secrets.keys())
+                    except Exception:
+                        _secrets_keys = ["(無法讀取 secrets)"]
+                    st.error(
+                        f"❌ 未能取得 API Key。\n\n"
+                        f"**診斷資訊：**\n"
+                        f"- provider 偵測：`{provider}`\n"
+                        f"- st.secrets 可用 keys：`{_secrets_keys}`\n"
+                        f"- DEEPSEEK_API_KEY 環境變數：`{bool(os.environ.get('DEEPSEEK_API_KEY'))}`\n"
+                        f"- ANTHROPIC_API_KEY 環境變數：`{bool(os.environ.get('ANTHROPIC_API_KEY'))}`\n\n"
+                        f"請在 Streamlit Cloud → Settings → Secrets 加入：\n"
+                        f"```\nDEEPSEEK_API_KEY = \"sk-...\"\n```"
                     )
+                    st.stop()
 
                 elif provider == "deepseek":
                     # DeepSeek — OpenAI-compatible API
@@ -385,11 +391,11 @@ if generate_btn:
                     "risk_level": risk_level,
                 }
 
-            except ImportError:
-                st.error("❌ 分析服務暫時未能使用。請聯絡 Buildway Tech 取得協助。")
+            except ImportError as e:
+                st.error(f"❌ 缺少依賴套件：`{e}`\n\n請確認 requirements.txt 包含 `openai` 及 `anthropic`。")
                 st.stop()
             except Exception as e:
-                st.error("❌ 分析過程中發生錯誤。請稍後再試或聯絡 Buildway Tech。")
+                st.error(f"❌ 分析錯誤：`{type(e).__name__}: {e}`")
                 st.stop()
 
         st.success("✅ 分析完成！請前往「分析報告」查看結果。")
