@@ -285,11 +285,13 @@ if generate_btn:
                     # 無 API Key — 顯示友善提示，不暴露技術細節
                     st.warning("⚠️ 系統暫時未能連接分析服務。請聯絡 Buildway Tech 取得協助。")
                     analysis_result = (
-                        "【系統提示】\n\n"
-                        "分析服務暫時未能使用。\n\n"
-                        f"你的問題已記錄：\n{question}\n\n"
-                        "請聯絡 Buildway Tech (HK) Limited 取得協助。\n"
-                        "Email: info@buildwaytech.hk"
+                        "## 工程分析\n\n"
+                        "分析服務暫時未能使用，請聯絡 Buildway Tech (HK) Limited 取得協助。\n\n"
+                        "## 建議跟進事項\n\n"
+                        "- 請聯絡 Buildway Tech (HK) Limited 安排人工評估\n"
+                        "- 如屬緊急安全事項，請即時通知現場安全主任\n\n"
+                        "## 需要人工確認事項\n\n"
+                        "- 本次分析需由合資格專業人士親身評估確認"
                     )
                 else:
                     import anthropic

@@ -178,10 +178,13 @@ def _parse_analysis(text: str, st: dict) -> list:
     Strips any banned technical phrases.
     """
     BANNED = [
-        "demo mode", "api key", "claude", "anthropic", "token",
-        "model", "backend", "debug", "prompt", "developer",
+        "demo mode", "[demo", "api key", "no api key", "api_key",
+        "claude", "anthropic", "token", "model name", "backend",
+        "debug", "prompt", "developer", "system prompt",
         "this is what would be sent", "the ai would analyze",
-        "no api key",
+        "input data summary", "engineering analysis",
+        "safety analysis", "regulatory compliance analysis",
+        "no api", "openai", "gemini", "llm", "language model",
     ]
 
     items = []
