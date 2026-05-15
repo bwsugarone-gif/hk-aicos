@@ -237,7 +237,31 @@ AGENT_SECTION_MAP = {
     ),
 }
 
-AGENT_ORDER_PDF = ["safety", "pm", "qs", "legal", "risk"]
+AGENT_ORDER_PDF = [
+    "accounting",
+    "drafting",
+    "engineering",
+    "foreman",
+    "material",
+    "pm",
+    "qs",
+    "safety",
+    "surveying",
+    "hk_legal",
+]
+
+AGENT_SECTION_FALLBACKS = {
+    "accounting": "未能取得 Accounting Agent 的完整段落，請補充付款、發票、成本及會計記錄後再分析。",
+    "drafting": "未能取得 Drafting Agent 的完整段落，請補充圖則、版本、RFI 或設計文件後再分析。",
+    "engineering": "未能取得 Engineering Agent 的完整段落，請補充施工方法、進度或工程資料後再分析。",
+    "foreman": "未能取得 Foreman Agent 的完整段落，請補充現場人手、工序及即時安排後再分析。",
+    "material": "未能取得 Material Agent 的完整段落，請補充物料、到貨、測試及批核文件後再分析。",
+    "pm": "未能取得 PM Agent 的完整段落，請補充項目背景、責任分工及決策要求後再分析。",
+    "qs": "未能取得 QS Agent 的完整段落，請補充合約、VO、付款或成本資料後再分析。",
+    "safety": "未能取得 Safety Agent 的完整段落，請補充安全風險、工序及現場控制措施後再分析。",
+    "surveying": "未能取得 Surveying Agent 的完整段落，請補充測量、放線、標高或監測記錄後再分析。",
+    "hk_legal": "未能取得 HK Legal Layer 的完整段落，請補充法規、合約責任或監管要求後再分析。",
+}
 
 
 def _split_agent_sections(analysis_result: str, selected_agents: list) -> dict:
@@ -387,10 +411,19 @@ def generate_pdf_report(
     # ── Dynamic agent sections ────────────────────────────────────────────────
     agent_sections = _split_agent_sections(analysis_result, selected_agents)
 
+    try:
+        from utils.agent_router import AGENT_DEFINITIONS as _AD
+    except Exception:
+        _AD = {}
+
     for agent_id in selected_agents:
-        if agent_id not in AGENT_SECTION_MAP:
+        if agent_id not in _AD:
             continue
-        section_title, fallback = AGENT_SECTION_MAP[agent_id]
+        section_title = _AD[agent_id]["report_section"]
+        fallback = AGENT_SECTION_FALLBACKS.get(
+            agent_id,
+            "未能取得該 Agent 的完整段落，請補充相關資料後再分析。",
+        )
         _section_header(section_title, story, st)
         section_text = agent_sections.get(agent_id, "")
         _add_clean_lines(story, section_text, st, fallback=fallback)

@@ -107,6 +107,7 @@ if "last_analysis" in st.session_state:
                 filename_hint=data.get("file_name", ""),
                 professionals_required=data.get("professionals", []),
                 project_ref=data.get("project_ref", ""),
+                selected_agents=data.get("selected_agents") or None,
             )
             safe_name = data.get("analysis_display_name", "報告").replace("/", "-").replace(" ", "-")
             st.download_button(

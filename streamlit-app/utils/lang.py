@@ -265,3 +265,81 @@ SYSTEM = {
     "knowledge_base_ok": "已載入",
     "knowledge_base_empty": "未載入",
 }
+
+# Phase 2.5A full Agent Selector library.
+# This late assignment intentionally overrides the older 5-agent UI list above.
+AGENTS = {
+    "accounting": {
+        "icon": "AC",
+        "label": "Accounting Agent",
+        "sublabel": "會計及付款",
+        "desc": "檢視付款、發票、成本記錄、工資及會計風險。",
+    },
+    "drafting": {
+        "icon": "DR",
+        "label": "Drafting Agent",
+        "sublabel": "圖則及文件",
+        "desc": "檢視圖則、版本、標註、RFI 及設計文件一致性。",
+    },
+    "engineering": {
+        "icon": "EN",
+        "label": "Engineering Agent",
+        "sublabel": "工程技術",
+        "desc": "分析施工方法、進度、技術風險、工序及工程影響。",
+    },
+    "foreman": {
+        "icon": "FM",
+        "label": "Foreman Agent",
+        "sublabel": "地盤前線",
+        "desc": "以地盤前線角度檢視人手、工序、現場狀況及即時安排。",
+    },
+    "material": {
+        "icon": "MT",
+        "label": "Material Agent",
+        "sublabel": "物料及品質",
+        "desc": "檢視物料採購、到貨、測試、批核及品質文件。",
+    },
+    "pm": {
+        "icon": "PM",
+        "label": "PM Agent",
+        "sublabel": "項目管理",
+        "desc": "整合跨部門風險、責任、優先次序、進度及管理決策。",
+    },
+    "qs": {
+        "icon": "QS",
+        "label": "QS Agent",
+        "sublabel": "合約及成本",
+        "desc": "分析合約、VO、成本、付款、索償及工期金錢影響。",
+    },
+    "safety": {
+        "icon": "SF",
+        "label": "Safety Agent",
+        "sublabel": "安全風險",
+        "desc": "分析安全風險、法定要求、PPE、事故預防及即時控制措施。",
+    },
+    "surveying": {
+        "icon": "SV",
+        "label": "Surveying Agent",
+        "sublabel": "測量及監測",
+        "desc": "檢視測量、放線、標高、尺寸偏差及監測記錄。",
+    },
+    "hk_legal": {
+        "icon": "HK",
+        "label": "HK Legal Layer",
+        "sublabel": "香港法規",
+        "desc": "檢視香港法規、合約責任、監管要求及法律風險。",
+    },
+}
+
+AGENT_ORDER = [
+    "accounting",
+    "drafting",
+    "engineering",
+    "foreman",
+    "material",
+    "pm",
+    "qs",
+    "safety",
+    "surveying",
+    "hk_legal",
+]

@@ -29,7 +29,7 @@ except ImportError:
 from utils.agent_router import (
     get_all_analysis_types, get_routing, build_analysis_prompt,
     get_required_professionals, get_agents_ordered, build_prompt_from_agents,
-    AGENT_DEFINITIONS, AGENT_ORDER,
+    AGENT_DEFINITIONS, AGENT_ORDER, DEFAULT_SELECTED_AGENTS,
 )
 from utils.risk_classifier import classify_risk, get_risk_info
 from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_type_label
@@ -362,9 +362,9 @@ st.markdown('<div class="step-label">第二點五步</div>', unsafe_allow_html=T
 st.markdown('<div class="step-title">🤖 選擇分析 Agent</div>', unsafe_allow_html=True)
 st.markdown("選擇參與分析的 Agent。每個 Agent 負責不同範疇，可多選。至少選擇一個。")
 
-# Initialise default: all agents selected
+# Initialise default: PM, Safety and Engineering only
 if "selected_agents" not in st.session_state:
-    st.session_state["selected_agents"] = list(AGENT_ORDER)
+    st.session_state["selected_agents"] = list(DEFAULT_SELECTED_AGENTS)
 
 agent_cols = st.columns(2)
 new_selection = []
@@ -390,6 +390,9 @@ else:
 
 # Show selected agent badges
 selected_agents = st.session_state["selected_agents"]
+if len(selected_agents) > 5:
+    st.warning("選擇太多 Agent 會令報告過長，建議每次選 2 至 5 個。")
+
 if selected_agents:
     badges_html = "".join(
         f'<span class="agent-badge">{AGENTS[aid]["icon"]} {AGENTS[aid]["label"]}</span>'
