@@ -185,37 +185,124 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
+MAX_FILES = 3
+MAX_FILE_SIZE_MB = 20
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
 st.markdown('<div class="step-box">', unsafe_allow_html=True)
 st.markdown('<div class="step-label">第一步</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-title">📎 上載文件</div>', unsafe_allow_html=True)
-st.markdown("支援 JPG、PNG、PDF（最大 20MB）")
+st.markdown(f"支援 JPG、PNG、PDF（最多 {MAX_FILES} 個檔案，每個最大 {MAX_FILE_SIZE_MB}MB）")
 
-uploaded_file = st.file_uploader(
+uploaded_files = st.file_uploader(
     "選擇文件",
     type=["jpg", "jpeg", "png", "pdf"],
+    accept_multiple_files=True,
     label_visibility="collapsed",
 )
 
-file_data = None
-if uploaded_file is not None:
-    if not is_allowed_file(uploaded_file.name):
-        st.error("❌ 不支援此文件類型。請上載 JPG、PNG 或 PDF。")
-    else:
-        with st.spinner("處理文件中..."):
-            file_data = process_uploaded_file(uploaded_file)
-        st.session_state["current_file_data"] = file_data
-        st.session_state["current_file_name"] = uploaded_file.name
+# ── 多檔案驗證及處理 ──────────────────────────────────────────────────────────
+all_file_data = []  # list of processed file_data dicts
 
-        if file_data["type"] == "image":
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
-            with col2:
-                st.success(f"✅ 圖片已載入：{uploaded_file.name}")
-        elif file_data["type"] == "pdf":
-            st.success(f"✅ PDF 已載入：{uploaded_file.name}")
-            with st.expander("預覽文件內容"):
-                st.text(file_data["content"][:1500] + ("..." if len(file_data["content"]) > 1500 else ""))
+if uploaded_files:
+    # Enforce max file count
+    if len(uploaded_files) > MAX_FILES:
+        st.error(f"❌ 最多只能上載 {MAX_FILES} 個檔案，請移除多餘的檔案。")
+        uploaded_files = uploaded_files[:MAX_FILES]
+
+    # File list UI
+    st.markdown("**已上載檔案：**")
+    file_list_rows = []
+    size_error = False
+    type_error_files = []
+
+    for uf in uploaded_files:
+        size_bytes = uf.size
+        size_mb = size_bytes / (1024 * 1024)
+        ext = Path(uf.name).suffix.lower().lstrip(".")
+        type_label = {"jpg": "圖片", "jpeg": "圖片", "png": "圖片", "pdf": "PDF"}.get(ext, ext.upper())
+
+        if size_bytes > MAX_FILE_SIZE_BYTES:
+            size_error = True
+            file_list_rows.append(
+                f"❌ **{uf.name}** — {size_mb:.1f} MB — {type_label} — ⚠️ 檔案過大"
+            )
+        elif not is_allowed_file(uf.name):
+            type_error_files.append(uf.name)
+            file_list_rows.append(
+                f"❌ **{uf.name}** — {size_mb:.1f} MB — 不支援格式"
+            )
+        else:
+            file_list_rows.append(
+                f"✅ **{uf.name}** — {size_mb:.2f} MB — {type_label}"
+            )
+
+    for row in file_list_rows:
+        st.markdown(row)
+
+    if size_error:
+        st.error("⚠️ 檔案過大，請壓縮 PDF 或分開上載。")
+
+    if type_error_files:
+        st.error(f"❌ 不支援此文件類型：{', '.join(type_error_files)}。請上載 JPG、PNG 或 PDF。")
+
+    # Process valid files
+    valid_files = [
+        uf for uf in uploaded_files
+        if uf.size <= MAX_FILE_SIZE_BYTES and is_allowed_file(uf.name)
+    ]
+
+    if valid_files:
+        with st.spinner("處理文件中..."):
+            for uf in valid_files:
+                fd = process_uploaded_file(uf)
+                all_file_data.append(fd)
+
+        # Preview each file
+        for i, (uf, fd) in enumerate(zip(valid_files, all_file_data)):
+            if fd["type"] == "image":
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.image(uf, caption=uf.name, use_container_width=True)
+                with col2:
+                    st.success(f"✅ 圖片已載入：{uf.name}")
+            elif fd["type"] == "pdf":
+                st.success(f"✅ PDF 已載入：{uf.name}")
+                with st.expander(f"預覽：{uf.name}"):
+                    preview = fd["content"][:1500] + ("..." if len(fd["content"]) > 1500 else "")
+                    st.text(preview)
+
+        # Merge all file data into session state
+        # combined_description: all file descriptions joined
+        # combined_content: all text content joined
+        # primary_file_data: first file (used for image API calls)
+        combined_description = "\n\n---\n\n".join(
+            f"[檔案 {i+1}：{fd['description']}]" for i, fd in enumerate(all_file_data)
+        )
+        combined_content = "\n\n---\n\n".join(
+            f"[檔案 {i+1}：{valid_files[i].name}]\n{fd['content']}"
+            for i, fd in enumerate(all_file_data)
+            if fd.get("content")
+        )
+        combined_names = "、".join(uf.name for uf in valid_files)
+
+        # Build a merged file_data object
+        merged_file_data = {
+            "type": all_file_data[0]["type"] if len(all_file_data) == 1 else "multi",
+            "description": combined_description,
+            "content": combined_content,
+            "path": all_file_data[0].get("path") if len(all_file_data) == 1 else None,
+            "file_count": len(all_file_data),
+            "all_file_data": all_file_data,
+        }
+
+        st.session_state["current_file_data"] = merged_file_data
+        st.session_state["current_file_name"] = combined_names
+        st.session_state["current_all_file_data"] = all_file_data
+        st.session_state["current_valid_files"] = valid_files
+
+        if len(valid_files) > 1:
+            st.info(f"ℹ️ 已合併 {len(valid_files)} 個檔案，將作為同一工程項目進行分析。")
 
 st.markdown('</div>', unsafe_allow_html=True)
 

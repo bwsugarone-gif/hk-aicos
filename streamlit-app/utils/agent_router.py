@@ -228,6 +228,13 @@ def build_prompt_from_agents(
 
     agent_names = "、".join([a["display"] for a in agents])
 
+    # Detect multi-file context from description
+    is_multi_file = "---" in file_description and "[檔案 2" in file_description
+    multi_file_note = (
+        "\n注意：以上附件包含多個來自同一工程項目的檔案，請綜合所有檔案內容進行分析。\n"
+        if is_multi_file else ""
+    )
+
     return f"""你是 HK-AICOS 香港工程顧問報告撰寫助手，由 Buildway Tech (HK) Limited 提供。
 
 請用專業香港工程顧問報告語氣撰寫。
@@ -243,7 +250,7 @@ def build_prompt_from_agents(
 {question}
 
 附件或文件摘要
-{file_description if file_description else "未有附件或文件摘要。"}
+{file_description if file_description else "未有附件或文件摘要。"}{multi_file_note}
 
 分析重點
 {focus_text}
