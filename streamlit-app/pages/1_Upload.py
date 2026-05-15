@@ -36,6 +36,8 @@ from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_t
 from utils.rag_reader import build_rag_context
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
+from utils.session_memory import save_session, get_prior_context, make_session_id
+from utils.report_generator import _department_mapping
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -492,14 +494,28 @@ if generate_btn:
                         all_regulations.append(reg)
         rag_context = build_rag_context(all_regulations)
 
+        # ── Project continuity: inject prior session context ──────────────────
+        prior_context = get_prior_context(project_ref.strip()) if project_ref.strip() else ""
+        prior_prefix = (
+            f"\n\n【項目歷史分析記錄】\n{prior_context}\n\n【本次分析】\n"
+            if prior_context else ""
+        )
+
         full_prompt = build_prompt_from_agents(
             selected_agent_ids=selected_agent_ids,
             question=question,
-            file_description=file_description + ("\n\n文件內容:\n" + file_content if file_content else ""),
+            file_description=(
+                prior_prefix
+                + file_description
+                + ("\n\n文件內容:\n" + file_content if file_content else "")
+            ),
             rag_context=rag_context,
         )
         professionals = get_required_professionals(selected_type, question, file_description)
         provider, api_key = _get_api_key()
+
+        # Generate a session_id now so it can be stored in last_analysis for PDF
+        current_session_id = make_session_id()
 
         with st.spinner("正在分析中，請稍候..."):
             try:
@@ -572,6 +588,35 @@ if generate_btn:
                 # Classify risk and store result
                 risk_level = classify_risk(selected_type, question, analysis_result)
 
+                # Derive departments for session record
+                _dept_text = "\n".join([selected_type, question, analysis_result])
+                _departments = _department_mapping(_dept_text)
+
+                # Collect file metadata for session record
+                _all_fd = st.session_state.get("current_all_file_data", [])
+                _valid_fs = st.session_state.get("current_valid_files", [])
+                _file_names = [uf.name for uf in _valid_fs] if _valid_fs else (
+                    [file_name] if file_name else []
+                )
+                _file_types = [fd.get("type", "unknown") for fd in _all_fd] if _all_fd else []
+
+                # Save session to JSON memory
+                try:
+                    save_session(
+                        project_ref=project_ref,
+                        file_names=_file_names,
+                        file_types=_file_types,
+                        selected_agents=selected_agent_ids,
+                        risk_level=risk_level,
+                        departments=_departments,
+                        analysis_result=analysis_result,
+                        analysis_type=ANALYSIS_DISPLAY[selected_type][1],
+                        question=question,
+                        session_id=current_session_id,
+                    )
+                except Exception:
+                    pass  # Never crash the main flow due to session save failure
+
                 st.session_state["last_analysis"] = {
                     "analysis_type": selected_type,
                     "analysis_display_name": ANALYSIS_DISPLAY[selected_type][1],
@@ -582,8 +627,8 @@ if generate_btn:
                     "professionals": professionals,
                     "project_ref": project_ref,
                     "risk_level": risk_level,
-                    # Store selected agents for report display
                     "selected_agents": selected_agent_ids,
+                    "session_id": current_session_id,
                 }
 
             except ImportError as e:

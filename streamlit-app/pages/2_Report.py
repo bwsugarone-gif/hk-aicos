@@ -310,6 +310,7 @@ try:
         professionals_required=professionals,
         project_ref=data.get("project_ref", ""),
         selected_agents=data.get("selected_agents") or None,
+        session_id=data.get("session_id", ""),
     )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(
@@ -320,7 +321,12 @@ try:
         use_container_width=True,
         type="primary",
     )
-except Exception as e:
+except ValueError as e:
+    if str(e) == "AI 輸出已亂碼":
+        st.error("AI 輸出已亂碼")
+    else:
+        st.error("PDF 生成失敗，請稍後再試。")
+except Exception:
     st.error("PDF 生成失敗，請稍後再試。")
 
 st.markdown('</div>', unsafe_allow_html=True)
