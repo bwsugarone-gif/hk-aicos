@@ -251,6 +251,38 @@ st.markdown(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ── 可能涉及部門 ──────────────────────────────────────────────────────────────
+from utils.report_generator import _department_mapping
+
+_dept_combined = "\n".join([
+    data.get("analysis_type", ""),
+    data.get("question", ""),
+    analysis_text,
+])
+_departments = _department_mapping(_dept_combined)
+
+st.markdown('<div class="report-section">', unsafe_allow_html=True)
+st.markdown('<h3>🏛️ 可能涉及部門</h3>', unsafe_allow_html=True)
+if _departments:
+    dept_tags = "".join(
+        f'<span style="display:inline-block;background:#eaf0fb;color:#1a3a5c;'
+        f'border:1px solid #d0d7e3;border-radius:16px;padding:0.2rem 0.85rem;'
+        f'font-size:0.9rem;font-weight:600;margin:0.2rem 0.3rem 0.2rem 0;">{d}</span>'
+        for d in _departments
+    )
+    st.markdown(dept_tags, unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.85rem;color:#666;margin-top:0.6rem;">'
+        '如不確定，需由相關專業人士確認實際監管部門。</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<div style="font-size:0.9rem;color:#666;">需由相關專業人士確認實際監管部門。</div>',
+        unsafe_allow_html=True,
+    )
+st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 需要專業人士確認 ──────────────────────────────────────────────────────────
 professionals = data.get("professionals", [])
 if professionals:
