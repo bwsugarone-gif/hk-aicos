@@ -1,78 +1,102 @@
 """
-report_generator.py
-HK-AICOS Phase 2.0 - PDF Report Generator (Client Version)
+HK-AICOS Phase 2.0 PDF report generator.
 
-Professional PDF report with Traditional Chinese support.
-Mobile-friendly, WhatsApp-shareable, no backend/demo text.
-
-Buildway Tech (HK) Limited
+Client-facing reports are rendered as clean consultant-style Chinese text.
+No markdown symbols, bullets, model names, debug wording, or assistant wording
+should appear in the PDF body.
 """
 
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, KeepTogether,
-)
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-# Font Setup - MSung-Light is a built-in CID font, works on all platforms
+
 pdfmetrics.registerFont(UnicodeCIDFont("MSung-Light"))
 FONT = "MSung-Light"
 
-# Colour Palette
-DARK_BLUE   = colors.HexColor("#1a3a5c")
-MID_BLUE    = colors.HexColor("#2d5a8e")
-LIGHT_BLUE  = colors.HexColor("#4a6fa5")
-GOLD        = colors.HexColor("#c9a84c")
-GOLD_LIGHT  = colors.HexColor("#f5e6c0")
-BG_GREY     = colors.HexColor("#f7f9fc")
+DARK_BLUE = colors.HexColor("#1a3a5c")
+MID_BLUE = colors.HexColor("#2d5a8e")
+GOLD = colors.HexColor("#c9a84c")
+BG_GREY = colors.HexColor("#f7f9fc")
 BORDER_GREY = colors.HexColor("#d0d7e3")
-TEXT_DARK   = colors.HexColor("#1a1a2e")
-TEXT_MID    = colors.HexColor("#444466")
+TEXT_DARK = colors.HexColor("#1a1a2e")
+TEXT_MID = colors.HexColor("#444466")
+
+REPORTS_DIR = Path(__file__).parent.parent / "reports"
+REPORTS_DIR.mkdir(exist_ok=True)
+
+RISK_ALIASES = {
+    "低": "低風險",
+    "低風險": "低風險",
+    "中": "中風險",
+    "中風險": "中風險",
+    "高": "高風險",
+    "高風險": "高風險",
+    "緊急": "高風險",
+    "極高": "高風險",
+}
 
 RISK_COLOR = {
     "低風險": colors.HexColor("#1a7a3c"),
     "中風險": colors.HexColor("#b85c00"),
     "高風險": colors.HexColor("#c0152a"),
 }
+
 RISK_BG = {
     "低風險": colors.HexColor("#e6f4ec"),
     "中風險": colors.HexColor("#fff4e0"),
     "高風險": colors.HexColor("#fde8eb"),
 }
-RISK_BORDER = {
-    "低風險": colors.HexColor("#28a745"),
-    "中風險": colors.HexColor("#e67e00"),
-    "高風險": colors.HexColor("#dc3545"),
-}
+
 RISK_DESC = {
-    "低風險": "一般記錄 / 可跟進",
-    "中風險": "可能影響安全、工期、成本或文件責任",
-    "高風險": "可能涉及法規、安全、結構、消防、電力、水務、公共道路、工傷、合約或公司責任",
+    "低風險": "一般跟進事項，按正常項目流程處理。",
+    "中風險": "可能影響安全、進度、成本或合規，建議由項目經理確認。",
+    "高風險": "可能涉及安全、法規、工期、成本或責任風險，需優先處理及保留紀錄。",
 }
 
-DISCLAIMER = (
-    "本報告為 AI 輔助工程分析結果，只供初步參考及內部評估用途。\n\n"
-    "所有涉及結構、安全、法規、消防、電力、水務、公共道路、掘路、"
-    "高風險工序、合約或法律責任之事項，必須由香港合資格專業人士最終確認。\n\n"
-    "Buildway Tech (HK) Limited 不會取代認可人士、註冊工程師、安全主任、"
-    "註冊電業工程人員、持牌水喉匠、法律專業人士或相關政府部門之正式審批。"
+AI_STYLE_PHRASES = (
+    "好的",
+    "以下是分析",
+    "我是AI",
+    "我是 AI",
+    "感謝使用",
+    "作為AI",
+    "作為 AI",
+    "我會為你",
+    "我可以幫你",
 )
 
-REPORTS_DIR = Path(__file__).parent.parent / "reports"
-REPORTS_DIR.mkdir(exist_ok=True)
+BANNED_TECH_PATTERNS = (
+    "DEMO MODE",
+    "Claude",
+    "Anthropic",
+    "API",
+    "backend",
+    "debug",
+    "token",
+    "OpenAI",
+    "Gemini",
+    "LLM",
+    "prompt",
+    "system prompt",
+    "developer",
+    "No API Key",
+)
+
+MARKDOWN_LINE_PREFIX = re.compile(r"^\s{0,4}(#{1,6}|\*+|-+|=+|•+)\s*")
+MARKDOWN_INLINE = re.compile(r"[*_`>#]+")
 
 
-# ── Style Builder ─────────────────────────────────────────────────────────────
 def _styles() -> dict:
     base = getSampleStyleSheet()
 
@@ -80,146 +104,163 @@ def _styles() -> dict:
         return ParagraphStyle(name, parent=base["Normal"], fontName=FONT, **kw)
 
     return {
-        # Cover header
-        "co_company": ps("co_company",
-            fontSize=13, textColor=colors.white,
-            alignment=TA_CENTER, leading=18, spaceAfter=2),
-        "co_title": ps("co_title",
-            fontSize=20, textColor=colors.white,
-            alignment=TA_CENTER, leading=26, spaceAfter=4),
-        "co_sub": ps("co_sub",
-            fontSize=10, textColor=colors.HexColor("#c9d8f0"),
-            alignment=TA_CENTER, leading=14),
-
-        # Metadata
-        "meta_label": ps("meta_label",
-            fontSize=10, textColor=DARK_BLUE, leading=15),
-        "meta_value": ps("meta_value",
-            fontSize=10, textColor=TEXT_DARK, leading=15),
-
-        # Section headings
-        "section": ps("section",
-            fontSize=13, textColor=DARK_BLUE,
-            spaceBefore=12, spaceAfter=4, leading=18),
-
-        # Body text - larger for mobile readability
-        "body": ps("body",
-            fontSize=11, leading=19, spaceAfter=5,
-            textColor=TEXT_DARK),
-
-        # Bullet points
-        "bullet": ps("bullet",
-            fontSize=11, leading=19, leftIndent=16,
-            spaceAfter=4, textColor=TEXT_DARK),
-
-        # Risk banner text
-        "risk_level": ps("risk_level",
-            fontSize=18, alignment=TA_CENTER,
-            leading=24, spaceAfter=2),
-        "risk_desc": ps("risk_desc",
-            fontSize=10, alignment=TA_CENTER,
-            textColor=TEXT_MID, leading=15),
-
-        # Warning box
-        "warn": ps("warn",
-            fontSize=11, leading=17,
-            textColor=colors.HexColor("#7a4400"),
-            leftIndent=8),
-
-        # Disclaimer
-        "disclaimer": ps("disclaimer",
-            fontSize=9, leading=15,
-            textColor=colors.HexColor("#6b1520")),
-
-        # Footer
-        "footer": ps("footer",
-            fontSize=8, textColor=colors.HexColor("#888888"),
-            alignment=TA_CENTER, leading=12),
-
-        # Professional confirm
-        "prof": ps("prof",
-            fontSize=11, leading=17,
-            textColor=colors.HexColor("#5a3e00"),
-            leftIndent=8),
+        "company": ps("company", fontSize=13, textColor=colors.white, alignment=TA_CENTER, leading=18),
+        "title": ps("title", fontSize=20, textColor=colors.white, alignment=TA_CENTER, leading=26),
+        "meta_label": ps("meta_label", fontSize=10, textColor=DARK_BLUE, leading=15),
+        "meta_value": ps("meta_value", fontSize=10, textColor=TEXT_DARK, leading=15),
+        "section": ps("section", fontSize=14, textColor=DARK_BLUE, leading=20, spaceBefore=7, spaceAfter=4),
+        "body": ps("body", fontSize=11, textColor=TEXT_DARK, leading=19, spaceAfter=5, alignment=TA_LEFT),
+        "subtle": ps("subtle", fontSize=9, textColor=TEXT_MID, leading=14, alignment=TA_CENTER),
+        "risk": ps("risk", fontSize=17, leading=23, alignment=TA_CENTER),
+        "notice": ps("notice", fontSize=10, textColor=colors.HexColor("#5a3e00"), leading=16),
+        "footer": ps("footer", fontSize=8, textColor=colors.HexColor("#888888"), leading=12, alignment=TA_CENTER),
     }
 
 
-# ── Safe Paragraph ────────────────────────────────────────────────────────────
+def _escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", "<br/>")
+    )
+
+
 def _p(text: str, style) -> Paragraph:
-    text = str(text)
-    text = (text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br/>"))
-    try:
-        return Paragraph(text, style)
-    except Exception:
-        safe = text.encode("ascii", "replace").decode()
-        return Paragraph(safe, style)
+    return Paragraph(_escape(text), style)
 
 
-# ── Section Header ────────────────────────────────────────────────────────────
-def _section_header(title: str, W: float, st: dict) -> list:
-    """Returns a list of flowables for a styled section header."""
-    return [
-        Spacer(1, 4 * mm),
-        _p(title, st["section"]),
-        HRFlowable(width=W, thickness=1.5, color=GOLD, spaceAfter=3),
-        Spacer(1, 2 * mm),
-    ]
+def _normalise_risk(risk_level: str) -> str:
+    raw = str(risk_level or "").strip()
+    for key, value in RISK_ALIASES.items():
+        if key in raw:
+            return value
+    return "中風險"
 
 
-# ── Parse Analysis Text ───────────────────────────────────────────────────────
-def _parse_analysis(text: str, st: dict) -> list:
-    """
-    Parse analysis text into styled flowables.
-    Handles markdown-style headings and bullet points.
-    Strips any banned technical phrases.
-    """
-    BANNED = [
-        "demo mode", "[demo", "api key", "no api key", "api_key",
-        "claude", "anthropic", "token", "model name", "backend",
-        "debug", "prompt", "developer", "system prompt",
-        "this is what would be sent", "the ai would analyze",
-        "input data summary", "engineering analysis",
-        "safety analysis", "regulatory compliance analysis",
-        "no api", "openai", "gemini", "llm", "language model",
-    ]
-
-    items = []
-    for raw_line in text.split("\n"):
+def _clean_report_text(text: str) -> str:
+    cleaned_lines = []
+    for raw_line in str(text or "").splitlines():
         line = raw_line.strip()
         if not line:
-            items.append(Spacer(1, 2 * mm))
             continue
 
-        # Check for banned content
-        line_lower = line.lower()
-        if any(b in line_lower for b in BANNED):
+        if any(pattern.lower() in line.lower() for pattern in BANNED_TECH_PATTERNS):
             continue
 
-        # Section headings (## or ###)
-        if line.startswith("###") or line.startswith("##"):
-            heading = line.lstrip("#").strip()
-            items.append(Spacer(1, 3 * mm))
-            items.append(_p(heading, st["section"]))
-            items.append(HRFlowable(width="100%", thickness=1, color=GOLD, spaceAfter=2))
-        # Bullet points
-        elif line.startswith("-") or line.startswith("•") or line.startswith("*"):
-            content = line.lstrip("-•* ").strip()
-            items.append(_p("•  " + content, st["bullet"]))
-        # Warning lines
-        elif line.startswith("!") or "注意" in line or "警告" in line:
-            items.append(_p(line.lstrip("! "), st["warn"]))
-        # Normal body
+        for phrase in AI_STYLE_PHRASES:
+            line = line.replace(phrase, "")
+
+        line = MARKDOWN_LINE_PREFIX.sub("", line)
+        line = MARKDOWN_INLINE.sub("", line)
+        line = re.sub(r"\s+", " ", line).strip()
+
+        if line:
+            cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines)
+
+
+def _section_header(title: str, story: list, st: dict):
+    story.append(Spacer(1, 4 * mm))
+    story.append(_p(title, st["section"]))
+
+
+def _add_clean_lines(story: list, text: str, st: dict, fallback: str = "未有補充資料。"):
+    cleaned = _clean_report_text(text)
+    if not cleaned:
+        cleaned = fallback
+    for line in cleaned.splitlines():
+        story.append(_p(line, st["body"]))
+
+
+def _department_mapping(text: str) -> list:
+    content = str(text or "")
+    mapping = [
+        (("高空", "工作台", "防墮", "安全帶"), "勞工處"),
+        (("棚架", "竹棚", "金屬棚"), "勞工處"),
+        (("棚架", "外牆架"), "屋宇署"),
+        (("臨時電", "電力", "電箱", "電線"), "EMSD"),
+        (("消防", "火警", "滅火", "排煙"), "消防處"),
+        (("結構", "樑", "柱", "樓板", "改動"), "屋宇署"),
+        (("水務", "食水", "水喉", "供水"), "水務署"),
+        (("掘路", "道路", "行車道", "路面"), "路政署"),
+    ]
+    departments = []
+    for keywords, department in mapping:
+        if any(keyword in content for keyword in keywords) and department not in departments:
+            departments.append(department)
+    return departments
+
+
+# ── Agent section definitions for dynamic PDF rendering ──────────────────────
+# Maps agent_id → (section_title, fallback_text)
+AGENT_SECTION_MAP = {
+    "safety": (
+        "安全風險分析",
+        "現階段未有足夠資料作安全風險分析。",
+    ),
+    "pm": (
+        "PM 工程進度分析",
+        "現階段未有足夠資料作工程進度分析。",
+    ),
+    "qs": (
+        "成本及工期影響分析",
+        "現階段未有足夠資料作成本及工期影響分析。",
+    ),
+    "legal": (
+        "法規及合規分析",
+        "現階段未有足夠資料作法規及合規分析。",
+    ),
+    "risk": (
+        "綜合風險評估",
+        "現階段未有足夠資料作綜合風險評估。",
+    ),
+}
+
+AGENT_ORDER_PDF = ["safety", "pm", "qs", "legal", "risk"]
+
+
+def _split_agent_sections(analysis_result: str, selected_agents: list) -> dict:
+    """
+    Split the AI output into per-agent sections by matching section headers.
+    Returns dict of {agent_id: section_text}.
+    Falls back to putting all text under the first agent if no headers found.
+    """
+    from utils.agent_router import AGENT_DEFINITIONS
+
+    sections = {}
+    text = _clean_report_text(analysis_result)
+
+    for agent_id in selected_agents:
+        if agent_id not in AGENT_DEFINITIONS:
+            continue
+        section_title = AGENT_DEFINITIONS[agent_id]["report_section"]
+        # Find the section in the text
+        idx = text.find(section_title)
+        if idx != -1:
+            # Find the end: next known section title or end of text
+            end_idx = len(text)
+            for other_id in selected_agents:
+                if other_id == agent_id or other_id not in AGENT_DEFINITIONS:
+                    continue
+                other_title = AGENT_DEFINITIONS[other_id]["report_section"]
+                other_idx = text.find(other_title, idx + len(section_title))
+                if other_idx != -1 and other_idx < end_idx:
+                    end_idx = other_idx
+            section_text = text[idx + len(section_title):end_idx].strip()
+            sections[agent_id] = section_text
         else:
-            items.append(_p(line, st["body"]))
+            sections[agent_id] = ""
 
-    return items
+    # If no sections were found at all, put everything under the first agent
+    if all(v == "" for v in sections.values()) and selected_agents:
+        sections[selected_agents[0]] = text
+
+    return sections
 
 
-# ── Main Generator ─────────────────────────────────────────────────────────────
 def generate_pdf_report(
     analysis_type: str,
     question: str,
@@ -228,233 +269,143 @@ def generate_pdf_report(
     filename_hint: str = "",
     professionals_required: list = None,
     project_ref: str = "",
+    selected_agents: list = None,
 ) -> bytes:
-    """
-    Generate a professional mobile-friendly PDF report.
-    Returns PDF as bytes. No backend/API/demo text exposed.
-    """
     st = _styles()
-
-    # Normalise risk level
-    if risk_level not in ("低風險", "中風險", "高風險"):
-        risk_level = "高風險"
-
-    r_color  = RISK_COLOR[risk_level]
-    r_bg     = RISK_BG[risk_level]
-    r_border = RISK_BORDER[risk_level]
-    r_desc   = RISK_DESC[risk_level]
-
-    buffer = io.BytesIO()
     now = datetime.now()
     report_id = f"RPT-{now.strftime('%Y%m%d-%H%M%S')}"
+    clean_risk = _normalise_risk(risk_level)
+    combined_text = "\n".join([analysis_type or "", question or "", analysis_result or ""])
+    departments = _department_mapping(combined_text)
 
+    # Determine which agents to render sections for
+    if not selected_agents:
+        selected_agents = AGENT_ORDER_PDF
+
+    buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm,
         title=f"HK-AICOS 工程分析報告 {report_id}",
         author="Buildway Tech (HK) Limited",
     )
 
+    width = 174 * mm
     story = []
-    W = 170 * mm  # usable width
 
-    # ── COVER HEADER ──────────────────────────────────────────────────────────
-    # Company name bar (dark blue)
-    company_bar = Table(
-        [[_p("Buildway Tech (HK) Limited", st["co_company"])]],
-        colWidths=[W],
-    )
+    company_bar = Table([[_p("Buildway Tech (HK) Limited", st["company"])]], colWidths=[width])
     company_bar.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), DARK_BLUE),
-        ("TOPPADDING",    (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
-
-    # Title bar (mid blue)
-    title_bar = Table(
-        [[_p("HK-AICOS  工程分析報告", st["co_title"])]],
-        colWidths=[W],
-    )
+    title_bar = Table([[_p("HK-AICOS 工程分析報告", st["title"])]], colWidths=[width])
     title_bar.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), MID_BLUE),
-        ("TOPPADDING",    (0, 0), (-1, -1), 14),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 13),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 13),
     ]))
+    accent = Table([[""]], colWidths=[width], rowHeights=[4])
+    accent.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), GOLD)]))
 
-    # Gold accent bar
-    gold_bar = Table([[""]], colWidths=[W], rowHeights=[4])
-    gold_bar.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GOLD),
-        ("TOPPADDING",    (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    story.extend([company_bar, title_bar, accent, Spacer(1, 6 * mm)])
 
-    story.append(company_bar)
-    story.append(title_bar)
-    story.append(gold_bar)
-    story.append(Spacer(1, 6 * mm))
+    # Build agent label string for metadata
+    try:
+        from utils.agent_router import AGENT_DEFINITIONS as _AD
+        agent_labels = "、".join(
+            _AD[aid]["display"] for aid in selected_agents if aid in _AD
+        )
+    except Exception:
+        agent_labels = "、".join(selected_agents)
 
-    # ── METADATA TABLE ────────────────────────────────────────────────────────
-    # Two-column layout: label | value
-    meta_data = [
+    meta_rows = [
         ("報告編號", report_id),
-        ("日期", now.strftime("%Y-%m-%d  %H:%M")),
-        ("分析類型", analysis_type),
-        ("工程編號", project_ref or "—"),
-        ("上載文件", filename_hint or "—"),
-        ("風險級別", f"[{risk_level}]"),
+        ("報告日期", now.strftime("%Y-%m-%d %H:%M")),
+        ("分析類型", _clean_report_text(analysis_type) or "工程分析"),
+        ("參與 Agent", agent_labels or "全部"),
+        ("項目編號", _clean_report_text(project_ref) or "待確認"),
+        ("參考文件", _clean_report_text(filename_hint) or "待確認"),
+        ("風險級別", clean_risk),
     ]
-
-    meta_rows = []
-    for label, value in meta_data:
-        if label == "風險級別":
-            val_para = _p(
-                f"[{risk_level}]",
-                ParagraphStyle("rl", fontName=FONT, fontSize=11,
-                               textColor=r_color, leading=16),
-            )
-        else:
-            val_para = _p(value, st["meta_value"])
-        meta_rows.append([_p(label, st["meta_label"]), val_para])
-
-    meta_table = Table(meta_rows, colWidths=[35 * mm, 135 * mm])
+    meta_table = Table(
+        [[_p(label, st["meta_label"]), _p(value, st["meta_value"])] for label, value in meta_rows],
+        colWidths=[34 * mm, 140 * mm],
+    )
     meta_table.setStyle(TableStyle([
-        ("FONTNAME",       (0, 0), (-1, -1), FONT),
-        ("BACKGROUND",     (0, 0), (0, -1), colors.HexColor("#eaf0fb")),
-        ("TEXTCOLOR",      (0, 0), (0, -1), DARK_BLUE),
-        ("GRID",           (0, 0), (-1, -1), 0.5, BORDER_GREY),
-        ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",     (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING",  (0, 0), (-1, -1), 7),
-        ("LEFTPADDING",    (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING",   (0, 0), (-1, -1), 8),
-        # Highlight risk row background
-        ("BACKGROUND",     (1, 5), (1, 5), r_bg),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eaf0fb")),
+        ("BACKGROUND", (1, 6), (1, 6), RISK_BG[clean_risk]),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.append(meta_table)
     story.append(Spacer(1, 6 * mm))
 
-    # ── RISK BANNER ───────────────────────────────────────────────────────────
-    risk_banner = Table(
-        [[
-            _p(
-                f"[{risk_level}]",
-                ParagraphStyle("rb", fontName=FONT, fontSize=20,
-                               alignment=TA_CENTER, textColor=r_color,
-                               leading=26, spaceAfter=3),
-            )
-        ],
-        [_p(r_desc, st["risk_desc"])]],
-        colWidths=[W],
+    risk_table = Table(
+        [[_p(clean_risk, ParagraphStyle("risk_value", fontName=FONT, fontSize=18, alignment=TA_CENTER, textColor=RISK_COLOR[clean_risk], leading=24))],
+         [_p(RISK_DESC[clean_risk], st["subtle"])]],
+        colWidths=[width],
     )
-    risk_banner.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), r_bg),
-        ("BOX",           (0, 0), (-1, -1), 2.5, r_border),
-        ("TOPPADDING",    (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
-        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+    risk_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), RISK_BG[clean_risk]),
+        ("BOX", (0, 0), (-1, -1), 1.2, RISK_COLOR[clean_risk]),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
     ]))
-    story.append(KeepTogether([risk_banner]))
-    story.append(Spacer(1, 6 * mm))
+    story.append(risk_table)
 
-    # ── 1. 問題摘要 ───────────────────────────────────────────────────────────
-    story.extend(_section_header("1.  問題摘要", W, st))
-    story.append(_p(question, st["body"]))
-    story.append(Spacer(1, 4 * mm))
+    # ── Dynamic agent sections ────────────────────────────────────────────────
+    agent_sections = _split_agent_sections(analysis_result, selected_agents)
 
-    # ── 2. 工程分析 ───────────────────────────────────────────────────────────
-    story.extend(_section_header("2.  工程分析", W, st))
-    story.extend(_parse_analysis(analysis_result, st))
-    story.append(Spacer(1, 4 * mm))
+    for agent_id in selected_agents:
+        if agent_id not in AGENT_SECTION_MAP:
+            continue
+        section_title, fallback = AGENT_SECTION_MAP[agent_id]
+        _section_header(section_title, story, st)
+        section_text = agent_sections.get(agent_id, "")
+        _add_clean_lines(story, section_text, st, fallback=fallback)
 
-    # ── 3-7: Extract structured sections from analysis_result if present ──────
-    # These sections are rendered if the AI output contains them as headings.
-    # The _parse_analysis function already handles ## headings inline,
-    # so we add explicit section separators for the standard chapters
-    # only if they are NOT already present in the analysis text.
+    # ── Departments ───────────────────────────────────────────────────────────
+    _section_header("可能涉及部門", story, st)
+    if departments:
+        for department in departments:
+            story.append(_p(department, st["body"]))
+    else:
+        story.append(_p("暫未明顯涉及政府部門。", st["body"]))
 
-    analysis_lower = analysis_result.lower()
-
-    def _has_section(keywords):
-        return any(k in analysis_lower for k in keywords)
-
-    if not _has_section(["安全風險", "安全分析"]):
-        story.extend(_section_header("3.  安全風險分析", W, st))
-        story.append(_p("• 請參閱上方工程分析內容。", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
-
-    if not _has_section(["法規", "合規"]):
-        story.extend(_section_header("4.  法規與合規提醒", W, st))
-        story.append(_p("• 如涉及法規事項，請諮詢相關合資格專業人士。", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
-
-    if not _has_section(["成本", "工期"]):
-        story.extend(_section_header("5.  成本及工期影響", W, st))
-        story.append(_p("• 如有成本或工期影響，請由項目經理評估。", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
-
-    if not _has_section(["建議", "跟進"]):
-        story.extend(_section_header("6.  建議跟進事項", W, st))
-        story.append(_p("• 請根據上方分析結果安排跟進。", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
-
-    # ── 需要人工確認事項 ──────────────────────────────────────────────────────
     if professionals_required:
-        story.extend(_section_header("7.  需要人工確認事項", W, st))
-        for prof in professionals_required:
-            story.append(_p(f"•  {prof}", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
+        _section_header("需確認人士", story, st)
+        for professional in professionals_required:
+            story.append(_p(_clean_report_text(professional), st["body"]))
 
-    # ── 專業人士確認提醒 ──────────────────────────────────────────────────────
-    story.extend(_section_header("8.  專業人士確認提醒", W, st))
-    confirm_items = [
-        "所有結構及承重改動 — 認可人士 (AP) / 結構工程師 (RSE)",
-        "消防系統及逃生設施 — 消防安全顧問 / 消防處",
-        "電力裝置及高壓工程 — 註冊電業工程人員",
-        "水務及排水工程 — 持牌水喉匠 / 水務署",
-        "公共道路及掘路工程 — 路政署 / 相關政府部門",
-        "工地安全及高風險工序 — 註冊安全主任 (RSO)",
-        "合約及法律責任事項 — 法律專業人士",
-    ]
-    for item in confirm_items:
-        story.append(_p(f"•  {item}", st["bullet"]))
     story.append(Spacer(1, 6 * mm))
-
-    # ── 免責聲明 ──────────────────────────────────────────────────────────────
-    story.append(HRFlowable(width=W, thickness=2, color=colors.HexColor("#c0152a"),
-                            spaceAfter=3))
-    disclaimer_table = Table(
-        [[_p(DISCLAIMER, st["disclaimer"])]],
-        colWidths=[W],
+    notice = (
+        "本報告供項目管理及工程跟進使用。正式行動、對外回覆及合約立場，"
+        "須由項目經理及相關合資格專業人士確認。"
     )
-    disclaimer_table.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#fde8eb")),
-        ("BOX",           (0, 0), (-1, -1), 1, colors.HexColor("#c0152a")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+    notice_table = Table([[_p(notice, st["notice"])]], colWidths=[width])
+    notice_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7dc")),
+        ("BOX", (0, 0), (-1, -1), 0.8, GOLD),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("LEFTPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
     ]))
-    story.append(disclaimer_table)
+    story.append(notice_table)
 
-    # ── FOOTER ────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 5 * mm))
-    story.append(HRFlowable(width=W, thickness=0.5, color=BORDER_GREY))
-    story.append(Spacer(1, 2 * mm))
-    story.append(_p(
-        f"HK-AICOS 工程分析報告  |  Buildway Tech (HK) Limited  |  {now.strftime('%Y-%m-%d %H:%M')}  |  {report_id}",
-        st["footer"],
-    ))
+    story.append(_p(f"Buildway Tech (HK) Limited  {now.strftime('%Y-%m-%d %H:%M')}  {report_id}", st["footer"]))
 
     doc.build(story)
     pdf_bytes = buffer.getvalue()
@@ -463,7 +414,6 @@ def generate_pdf_report(
 
 
 def save_report(pdf_bytes: bytes, report_id: str = "") -> Path:
-    """Save PDF bytes to the reports directory and return the path."""
     if not report_id:
         report_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"HK-AICOS-Report-{report_id}.pdf"

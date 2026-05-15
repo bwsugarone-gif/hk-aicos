@@ -209,6 +209,43 @@ ABOUT = {
     "admin_key_success": "✅ 服務金鑰已設定（此 session 有效）",
 }
 
+# ── Agent Selector UI ────────────────────────────────────────────────────────
+# Mirrors AGENT_DEFINITIONS in agent_router.py — UI labels and descriptions only
+AGENTS = {
+    "safety": {
+        "icon": "🦺",
+        "label": "Safety Agent",
+        "sublabel": "安全 Agent",
+        "desc": "分析工地安全風險、PPE 使用、高危工序及即時危險",
+    },
+    "pm": {
+        "icon": "📋",
+        "label": "PM Agent",
+        "sublabel": "項目管理 Agent",
+        "desc": "綜合分析工程進度、資源安排、責任分工及決策支援",
+    },
+    "qs": {
+        "icon": "💰",
+        "label": "QS Agent",
+        "sublabel": "工料測量 Agent",
+        "desc": "評估成本影響、工期延誤、VO 可能性及合約索償風險",
+    },
+    "legal": {
+        "icon": "⚖️",
+        "label": "Legal Agent",
+        "sublabel": "法規合規 Agent",
+        "desc": "對照香港法規，檢查政府部門要求、牌照、通報及合規風險",
+    },
+    "risk": {
+        "icon": "⚠️",
+        "label": "Risk Agent",
+        "sublabel": "風險評估 Agent",
+        "desc": "綜合評估項目整體風險、責任範圍及優先處理事項",
+    },
+}
+
+AGENT_ORDER = ["safety", "pm", "qs", "legal", "risk"]
+
 # ── 風險級別 ──────────────────────────────────────────────────────────────────
 RISK = {
     "low": "低風險",

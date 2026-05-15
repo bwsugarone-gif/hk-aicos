@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report
-from utils.lang import REPORT, NAV, BRAND
+from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 
 st.set_page_config(
@@ -34,6 +34,21 @@ st.markdown("""
         background: linear-gradient(180deg, #1a3a5c 0%, #0f2942 100%);
     }
     [data-testid="stSidebar"] * { color: white !important; }
+
+    .agent-badge {
+        display: inline-block;
+        background: #1a3a5c;
+        color: white;
+        border-radius: 20px;
+        padding: 0.15rem 0.75rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin: 0.15rem 0.2rem 0.15rem 0;
+    }
+    .agent-badge-row {
+        margin-top: 0.4rem;
+        margin-bottom: 0.2rem;
+    }
 
     .page-header {
         background: linear-gradient(135deg, #1a3a5c 0%, #2d5a8e 100%);
@@ -200,6 +215,20 @@ with col2:
     st.markdown(f"**風險級別：** {risk_emoji} {risk_level}")
 
 st.markdown(f"**問題：** {data.get('question', '')}")
+
+# ── 參與 Agent 標籤 ───────────────────────────────────────────────────────────
+selected_agents = data.get("selected_agents", [])
+if selected_agents:
+    badges_html = "".join(
+        f'<span class="agent-badge">{AGENTS[aid]["icon"]} {AGENTS[aid]["label"]}</span>'
+        for aid in selected_agents
+        if aid in AGENTS
+    )
+    st.markdown(
+        f'<div class="agent-badge-row"><strong>參與 Agent：</strong>{badges_html}</div>',
+        unsafe_allow_html=True,
+    )
+
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ── 分析內容 ──────────────────────────────────────────────────────────────────
@@ -248,6 +277,7 @@ try:
         filename_hint=data.get("file_name", ""),
         professionals_required=professionals,
         project_ref=data.get("project_ref", ""),
+        selected_agents=data.get("selected_agents") or None,
     )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(

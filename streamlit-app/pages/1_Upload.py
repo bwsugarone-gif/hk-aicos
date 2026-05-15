@@ -26,11 +26,15 @@ try:
 except ImportError:
     pass
 
-from utils.agent_router import get_all_analysis_types, get_routing, build_analysis_prompt, get_required_professionals
+from utils.agent_router import (
+    get_all_analysis_types, get_routing, build_analysis_prompt,
+    get_required_professionals, get_agents_ordered, build_prompt_from_agents,
+    AGENT_DEFINITIONS, AGENT_ORDER,
+)
 from utils.risk_classifier import classify_risk, get_risk_info
 from utils.file_loader import process_uploaded_file, is_allowed_file
 from utils.rag_reader import build_rag_context
-from utils.lang import UPLOAD, ANALYSIS_TYPES, NAV, BRAND
+from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
 
 st.set_page_config(
@@ -51,6 +55,40 @@ st.markdown("""
         background: linear-gradient(180deg, #1a3a5c 0%, #0f2942 100%);
     }
     [data-testid="stSidebar"] * { color: white !important; }
+
+    .agent-card {
+        background: #f4f6f9;
+        border: 2px solid #e0e6ef;
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        margin-bottom: 0.6rem;
+        transition: border-color 0.2s, background 0.2s;
+    }
+    .agent-card.selected {
+        border-color: #1a3a5c;
+        background: #eaf0fb;
+    }
+    .agent-card-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #1a3a5c;
+        margin-bottom: 0.2rem;
+    }
+    .agent-card-desc {
+        font-size: 0.85rem;
+        color: #555;
+        margin: 0;
+    }
+    .agent-badge {
+        display: inline-block;
+        background: #1a3a5c;
+        color: white;
+        border-radius: 20px;
+        padding: 0.15rem 0.7rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin: 0.15rem 0.2rem 0.15rem 0;
+    }
 
     .page-header {
         background: linear-gradient(135deg, #1a3a5c 0%, #2d5a8e 100%);
@@ -199,8 +237,6 @@ for i, key in enumerate(analysis_keys):
     icon, display_name, desc = ANALYSIS_DISPLAY[key]
     with cols_type[i % 2]:
         is_selected = st.session_state["selected_analysis_type"] == key
-        border_color = "#c9a84c" if is_selected else "#e0e6ef"
-        bg_color = "#fdf8ee" if is_selected else "#f4f6f9"
         check = "✓ " if is_selected else ""
         if st.button(
             f"{check}{icon} {display_name}\n{desc}",
@@ -213,6 +249,53 @@ for i, key in enumerate(analysis_keys):
 selected_type = st.session_state["selected_analysis_type"]
 icon_s, name_s, _ = ANALYSIS_DISPLAY[selected_type]
 st.info(f"已選擇：**{icon_s} {name_s}**")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ── 第二點五步：選擇 Agent ────────────────────────────────────────────────────
+st.markdown('<div class="step-box">', unsafe_allow_html=True)
+st.markdown('<div class="step-label">第二點五步</div>', unsafe_allow_html=True)
+st.markdown('<div class="step-title">🤖 選擇分析 Agent</div>', unsafe_allow_html=True)
+st.markdown("選擇參與分析的 Agent。每個 Agent 負責不同範疇，可多選。至少選擇一個。")
+
+# Initialise default: all agents selected
+if "selected_agents" not in st.session_state:
+    st.session_state["selected_agents"] = list(AGENT_ORDER)
+
+agent_cols = st.columns(2)
+new_selection = []
+for idx, agent_id in enumerate(AGENT_ORDER):
+    agent_ui = AGENTS[agent_id]
+    is_checked = agent_id in st.session_state["selected_agents"]
+    with agent_cols[idx % 2]:
+        checked = st.checkbox(
+            f"{agent_ui['icon']} **{agent_ui['label']}** — {agent_ui['sublabel']}",
+            value=is_checked,
+            key=f"agent_cb_{agent_id}",
+            help=agent_ui["desc"],
+        )
+        if checked:
+            new_selection.append(agent_id)
+
+# Update session state (don't allow empty selection)
+if new_selection:
+    st.session_state["selected_agents"] = new_selection
+else:
+    # Keep previous selection if user deselects everything
+    st.warning("⚠️ 請至少選擇一個 Agent。")
+
+# Show selected agent badges
+selected_agents = st.session_state["selected_agents"]
+if selected_agents:
+    badges_html = "".join(
+        f'<span class="agent-badge">{AGENTS[aid]["icon"]} {AGENTS[aid]["label"]}</span>'
+        for aid in selected_agents
+        if aid in AGENTS
+    )
+    st.markdown(
+        f'<div style="margin-top:0.5rem;">已選擇 Agent：{badges_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -284,16 +367,26 @@ generate_btn = st.button("🚀 生成分析報告", type="primary", use_containe
 if generate_btn:
     if not question.strip():
         st.error("❌ 請先輸入你的問題。")
+    elif not st.session_state.get("selected_agents"):
+        st.error("❌ 請至少選擇一個 Agent。")
     else:
         file_data_to_use = st.session_state.get("current_file_data")
         file_description = file_data_to_use["description"] if file_data_to_use else ""
         file_content = file_data_to_use["content"] if file_data_to_use else ""
         file_name = st.session_state.get("current_file_name", "")
 
-        routing = get_routing(selected_type)
-        rag_context = build_rag_context(routing["regulations"])
-        full_prompt = build_analysis_prompt(
-            analysis_type=selected_type,
+        # Build prompt from selected agents (agent-driven mode)
+        selected_agent_ids = st.session_state["selected_agents"]
+        all_regulations = []
+        for aid in selected_agent_ids:
+            if aid in AGENT_DEFINITIONS:
+                for reg in AGENT_DEFINITIONS[aid]["regulations"]:
+                    if reg not in all_regulations:
+                        all_regulations.append(reg)
+        rag_context = build_rag_context(all_regulations)
+
+        full_prompt = build_prompt_from_agents(
+            selected_agent_ids=selected_agent_ids,
             question=question,
             file_description=file_description + ("\n\n文件內容:\n" + file_content if file_content else ""),
             rag_context=rag_context,
@@ -329,7 +422,6 @@ if generate_btn:
                         api_key=api_key,
                         base_url="https://api.deepseek.com",
                     )
-                    # DeepSeek 唔支援 vision，只傳文字 prompt
                     ds_prompt = full_prompt
                     if file_data_to_use and file_data_to_use["type"] == "image":
                         ds_prompt = f"[圖片已上載：{file_name}]\n\n{full_prompt}"
@@ -370,8 +462,7 @@ if generate_btn:
                         )
                     analysis_result = message.content[0].text
 
-                # 儲存結果
-                from utils.risk_classifier import classify_risk
+                # Classify risk and store result
                 risk_level = classify_risk(selected_type, question, analysis_result)
 
                 st.session_state["last_analysis"] = {
@@ -384,6 +475,8 @@ if generate_btn:
                     "professionals": professionals,
                     "project_ref": project_ref,
                     "risk_level": risk_level,
+                    # Store selected agents for report display
+                    "selected_agents": selected_agent_ids,
                 }
 
             except ImportError as e:
