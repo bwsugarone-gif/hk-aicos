@@ -32,7 +32,7 @@ from utils.agent_router import (
     AGENT_DEFINITIONS, AGENT_ORDER,
 )
 from utils.risk_classifier import classify_risk, get_risk_info
-from utils.file_loader import process_uploaded_file, is_allowed_file
+from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_type_label
 from utils.rag_reader import build_rag_context
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
@@ -186,17 +186,20 @@ st.markdown("""
 
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
 MAX_FILES = 3
-MAX_FILE_SIZE_MB = 20
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_TOTAL_SIZE_MB = 50
+MAX_TOTAL_SIZE_BYTES = MAX_TOTAL_SIZE_MB * 1024 * 1024
 
 st.markdown('<div class="step-box">', unsafe_allow_html=True)
 st.markdown('<div class="step-label">第一步</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-title">📎 上載文件</div>', unsafe_allow_html=True)
-st.markdown(f"支援 JPG、PNG、PDF（最多 {MAX_FILES} 個檔案，每個最大 {MAX_FILE_SIZE_MB}MB）")
+st.markdown(
+    f"支援 JPG、PNG、PDF、DOCX、XLSX"
+    f"（最多 {MAX_FILES} 個檔案，總大小上限 {MAX_TOTAL_SIZE_MB}MB）"
+)
 
 uploaded_files = st.file_uploader(
     "選擇文件",
-    type=["jpg", "jpeg", "png", "pdf"],
+    type=["jpg", "jpeg", "png", "pdf", "docx", "xlsx"],
     accept_multiple_files=True,
     label_visibility="collapsed",
 )
@@ -210,46 +213,50 @@ if uploaded_files:
         st.error(f"❌ 最多只能上載 {MAX_FILES} 個檔案，請移除多餘的檔案。")
         uploaded_files = uploaded_files[:MAX_FILES]
 
-    # File list UI
-    st.markdown("**已上載檔案：**")
-    file_list_rows = []
-    size_error = False
-    type_error_files = []
+    # Check total size
+    total_size_bytes = sum(uf.size for uf in uploaded_files)
+    total_size_mb = total_size_bytes / (1024 * 1024)
 
-    for uf in uploaded_files:
-        size_bytes = uf.size
-        size_mb = size_bytes / (1024 * 1024)
-        ext = Path(uf.name).suffix.lower().lstrip(".")
-        type_label = {"jpg": "圖片", "jpeg": "圖片", "png": "圖片", "pdf": "PDF"}.get(ext, ext.upper())
+    if total_size_bytes > MAX_TOTAL_SIZE_BYTES:
+        st.error(f"❌ 檔案過大，請分批提交或壓縮文件。（總大小：{total_size_mb:.1f} MB，上限：{MAX_TOTAL_SIZE_MB} MB）")
+        uploaded_files = []
 
-        if size_bytes > MAX_FILE_SIZE_BYTES:
-            size_error = True
-            file_list_rows.append(
-                f"❌ **{uf.name}** — {size_mb:.1f} MB — {type_label} — ⚠️ 檔案過大"
+    # File list UI — show type, size, count
+    if uploaded_files:
+        st.markdown(
+            f"**已上載檔案：** 共 {len(uploaded_files)} 個，"
+            f"總大小 {total_size_mb:.2f} MB"
+        )
+        file_list_rows = []
+        type_error_files = []
+
+        for uf in uploaded_files:
+            size_mb = uf.size / (1024 * 1024)
+            type_label = get_file_type_label(uf.name)
+
+            if not is_allowed_file(uf.name):
+                type_error_files.append(uf.name)
+                file_list_rows.append(
+                    f"❌ **{uf.name}** — {size_mb:.2f} MB — 不支援格式"
+                )
+            else:
+                file_list_rows.append(
+                    f"✅ **{uf.name}** — {size_mb:.2f} MB — {type_label}"
+                )
+
+        for row in file_list_rows:
+            st.markdown(row)
+
+        if type_error_files:
+            st.error(
+                f"❌ 不支援此文件類型：{', '.join(type_error_files)}。"
+                f"請上載 JPG、PNG、PDF、DOCX 或 XLSX。"
             )
-        elif not is_allowed_file(uf.name):
-            type_error_files.append(uf.name)
-            file_list_rows.append(
-                f"❌ **{uf.name}** — {size_mb:.1f} MB — 不支援格式"
-            )
-        else:
-            file_list_rows.append(
-                f"✅ **{uf.name}** — {size_mb:.2f} MB — {type_label}"
-            )
-
-    for row in file_list_rows:
-        st.markdown(row)
-
-    if size_error:
-        st.error("⚠️ 檔案過大，請壓縮 PDF 或分開上載。")
-
-    if type_error_files:
-        st.error(f"❌ 不支援此文件類型：{', '.join(type_error_files)}。請上載 JPG、PNG 或 PDF。")
 
     # Process valid files
     valid_files = [
         uf for uf in uploaded_files
-        if uf.size <= MAX_FILE_SIZE_BYTES and is_allowed_file(uf.name)
+        if is_allowed_file(uf.name)
     ]
 
     if valid_files:
@@ -268,6 +275,16 @@ if uploaded_files:
                     st.success(f"✅ 圖片已載入：{uf.name}")
             elif fd["type"] == "pdf":
                 st.success(f"✅ PDF 已載入：{uf.name}")
+                with st.expander(f"預覽：{uf.name}"):
+                    preview = fd["content"][:1500] + ("..." if len(fd["content"]) > 1500 else "")
+                    st.text(preview)
+            elif fd["type"] == "docx":
+                st.success(f"✅ Word 文件已載入：{uf.name}")
+                with st.expander(f"預覽：{uf.name}"):
+                    preview = fd["content"][:1500] + ("..." if len(fd["content"]) > 1500 else "")
+                    st.text(preview)
+            elif fd["type"] == "xlsx":
+                st.success(f"✅ Excel 試算表已載入：{uf.name}")
                 with st.expander(f"預覽：{uf.name}"):
                     preview = fd["content"][:1500] + ("..." if len(fd["content"]) > 1500 else "")
                     st.text(preview)
