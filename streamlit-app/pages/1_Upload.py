@@ -31,6 +31,11 @@ from utils.agent_router import (
     get_required_professionals, get_agents_ordered, build_prompt_from_agents,
     AGENT_DEFINITIONS, AGENT_ORDER, DEFAULT_SELECTED_AGENTS,
 )
+from utils.smart_agent_router import (
+    recommend_agents,
+    filter_agents_by_sufficiency,
+    build_insufficient_notice,
+)
 from utils.risk_classifier import classify_risk, get_risk_info
 from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_type_label
 from utils.rag_reader import build_rag_context
@@ -363,11 +368,46 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-box">', unsafe_allow_html=True)
 st.markdown('<div class="step-label">第二點五步</div>', unsafe_allow_html=True)
 st.markdown('<div class="step-title">🤖 選擇分析 Agent</div>', unsafe_allow_html=True)
-st.markdown("選擇參與分析的 Agent。每個 Agent 負責不同範疇，可多選。至少選擇一個。")
 
-# Initialise default: PM, Safety and Engineering only
-if "selected_agents" not in st.session_state:
-    st.session_state["selected_agents"] = list(DEFAULT_SELECTED_AGENTS)
+# ── Smart recommendation: compute based on current file + question ────────────
+_current_fd   = st.session_state.get("current_file_data")
+_smart_ftype  = _current_fd["type"] if _current_fd else ""
+_smart_fcont  = _current_fd.get("content", "") if _current_fd else ""
+_smart_q      = st.session_state.get("_smart_question_preview", "")
+_smart_type   = st.session_state.get("selected_analysis_type", "綜合項目分析")
+
+_recommended = recommend_agents(
+    file_type=_smart_ftype,
+    file_content=_smart_fcont,
+    question=_smart_q,
+    analysis_type=_smart_type,
+)
+
+# Only auto-apply recommendation on first load or when file changes
+_file_sig = f"{_smart_ftype}:{st.session_state.get('current_file_name','')}"
+if (
+    "selected_agents" not in st.session_state
+    or st.session_state.get("_last_file_sig") != _file_sig
+):
+    st.session_state["selected_agents"] = _recommended
+    st.session_state["_last_file_sig"]  = _file_sig
+
+# Show smart recommendation notice
+if _recommended:
+    rec_badges = "".join(
+        f'<span class="agent-badge">{AGENTS[aid]["icon"]} {AGENTS[aid]["label"]}</span>'
+        for aid in _recommended
+        if aid in AGENTS
+    )
+    st.markdown(
+        f'<div style="background:#eaf0fb;border-left:4px solid #1a3a5c;'
+        f'border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.8rem;font-size:0.9rem;">'
+        f'💡 系統已根據文件類型及問題建議參與 Agent，可自行調整。<br/>'
+        f'建議：{rec_badges}</div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown("選擇參與分析的 Agent。每個 Agent 負責不同範疇，可多選。至少選擇一個。")
 
 agent_cols = st.columns(2)
 new_selection = []
@@ -388,13 +428,14 @@ for idx, agent_id in enumerate(AGENT_ORDER):
 if new_selection:
     st.session_state["selected_agents"] = new_selection
 else:
-    # Keep previous selection if user deselects everything
     st.warning("⚠️ 請至少選擇一個 Agent。")
 
-# Show selected agent badges
+# Show selected agent badges + over-selection warning
 selected_agents = st.session_state["selected_agents"]
 if len(selected_agents) > 5:
-    st.warning("選擇太多 Agent 會令報告過長，建議每次選 2 至 5 個。")
+    st.warning(
+        "⚠️ 選擇太多 Agent 可能令報告過長或出現資料不足，建議每次選 2 至 5 個。"
+    )
 
 if selected_agents:
     badges_html = "".join(
