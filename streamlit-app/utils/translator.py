@@ -64,22 +64,15 @@ def _ensure_font() -> str:
 
 
 # ── AI translation helper ─────────────────────────────────────────────────────
-def translate_text_via_ai(
-    text: str,
-    direction: str,          # "en_to_tc" | "tc_to_en"
-    ai_client=None,
-    ai_provider: str = "anthropic",
-    model: str = "",
-) -> str:
-    """
-    Translate text using the configured AI provider.
-    Returns translated text, or raises RuntimeError if AI is unavailable.
-    """
-    if not text or not text.strip():
-        return ""
 
+# Chunk / document limits
+CHUNK_SIZE      = 6000    # characters per chunk sent to AI
+MAX_TOTAL_CHARS = 100_000  # hard cap — warn user above this
+
+
+def _build_instruction(text: str, direction: str) -> str:
     if direction == "en_to_tc":
-        instruction = (
+        return (
             "你是一位專業的工程文件翻譯員，專門處理香港建築及工程行業文件。\n"
             "請將以下英文文字翻譯成繁體中文。\n"
             "規則：\n"
@@ -91,7 +84,7 @@ def translate_text_via_ai(
             f"原文：\n{text}"
         )
     elif direction == "tc_to_en":
-        instruction = (
+        return (
             "You are a professional engineering document translator specialising in "
             "Hong Kong construction and engineering documents.\n"
             "Translate the following Traditional Chinese text into English.\n"
@@ -106,33 +99,146 @@ def translate_text_via_ai(
     else:
         raise ValueError(f"Unknown translation direction: {direction}")
 
+
+def _call_ai(instruction: str, ai_client, ai_provider: str, model: str) -> str:
+    """Single AI call — raises RuntimeError on failure."""
+    if ai_provider == "anthropic":
+        _model = model or "claude-3-5-haiku-20241022"
+        response = ai_client.messages.create(
+            model=_model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": instruction}],
+        )
+        return response.content[0].text.strip()
+
+    elif ai_provider in ("openai", "deepseek"):
+        # Both use OpenAI-compatible chat completions
+        _model = model or ("deepseek-chat" if ai_provider == "deepseek" else "gpt-4o-mini")
+        response = ai_client.chat.completions.create(
+            model=_model,
+            messages=[{"role": "user", "content": instruction}],
+            max_tokens=4096,
+        )
+        return response.choices[0].message.content.strip()
+
+    else:
+        raise RuntimeError(f"Unsupported AI provider: {ai_provider}")
+
+
+def translate_text_via_ai(
+    text: str,
+    direction: str,          # "en_to_tc" | "tc_to_en"
+    ai_client=None,
+    ai_provider: str = "anthropic",
+    model: str = "",
+) -> str:
+    """
+    Translate text using the configured AI provider.
+    Returns translated text, or raises RuntimeError if AI is unavailable.
+    Single-call version — use translate_chunks_via_ai for large documents.
+    """
+    if not text or not text.strip():
+        return ""
+    if ai_client is None:
+        raise RuntimeError("AI client not provided. Please configure API key.")
+    try:
+        instruction = _build_instruction(text, direction)
+        return _call_ai(instruction, ai_client, ai_provider, model)
+    except Exception as e:
+        raise RuntimeError(f"Translation failed: {e}") from e
+
+
+def split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE) -> list[str]:
+    """
+    Split text into chunks of at most chunk_size characters.
+    Tries to split on paragraph boundaries (double newline) to preserve structure.
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while len(remaining) > chunk_size:
+        # Try to find a paragraph break near the chunk boundary
+        split_at = remaining.rfind("\n\n", 0, chunk_size)
+        if split_at == -1:
+            # Fall back to single newline
+            split_at = remaining.rfind("\n", 0, chunk_size)
+        if split_at == -1 or split_at < chunk_size // 2:
+            # No good break point — hard split
+            split_at = chunk_size
+
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
+def translate_chunks_via_ai(
+    text: str,
+    direction: str,
+    ai_client=None,
+    ai_provider: str = "anthropic",
+    model: str = "",
+    progress_callback=None,   # callable(current: int, total: int, message: str)
+) -> dict:
+    """
+    Translate a large document by splitting into chunks and translating each.
+
+    Returns a dict:
+    {
+        "translated":        str,   # full merged translation
+        "total_chunks":      int,
+        "success_chunks":    int,
+        "failed_chunks":     int,
+        "failed_details":    list[dict],  # [{chunk: int, error: str}]
+        "is_complete":       bool,
+        "truncated":         bool,   # True if text was capped at MAX_TOTAL_CHARS
+    }
+    """
     if ai_client is None:
         raise RuntimeError("AI client not provided. Please configure API key.")
 
-    try:
-        if ai_provider == "anthropic":
-            _model = model or "claude-3-5-haiku-20241022"
-            response = ai_client.messages.create(
-                model=_model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": instruction}],
-            )
-            return response.content[0].text.strip()
+    truncated = False
+    if len(text) > MAX_TOTAL_CHARS:
+        text = text[:MAX_TOTAL_CHARS]
+        truncated = True
 
-        elif ai_provider == "openai":
-            _model = model or "gpt-4o-mini"
-            response = ai_client.chat.completions.create(
-                model=_model,
-                messages=[{"role": "user", "content": instruction}],
-                max_tokens=4096,
-            )
-            return response.choices[0].message.content.strip()
+    chunks = split_into_chunks(text, CHUNK_SIZE)
+    total  = len(chunks)
 
-        else:
-            raise RuntimeError(f"Unsupported AI provider: {ai_provider}")
+    translated_parts: list[str] = []
+    failed_details:   list[dict] = []
 
-    except Exception as e:
-        raise RuntimeError(f"Translation failed: {e}") from e
+    for i, chunk in enumerate(chunks, start=1):
+        if progress_callback:
+            progress_callback(i, total, f"正在翻譯第 {i} / {total} 段...")
+
+        try:
+            instruction = _build_instruction(chunk, direction)
+            result = _call_ai(instruction, ai_client, ai_provider, model)
+            translated_parts.append(result)
+        except Exception as e:
+            failed_details.append({"chunk": i, "error": str(e)})
+            # Keep a placeholder so ordering is preserved
+            translated_parts.append(f"[第 {i} 段翻譯失敗：{e}]")
+
+    success_chunks = total - len(failed_details)
+    merged = "\n\n".join(translated_parts)
+
+    return {
+        "translated":     merged,
+        "total_chunks":   total,
+        "success_chunks": success_chunks,
+        "failed_chunks":  len(failed_details),
+        "failed_details": failed_details,
+        "is_complete":    len(failed_details) == 0,
+        "truncated":      truncated,
+    }
 
 
 # ── DOCX extraction ───────────────────────────────────────────────────────────

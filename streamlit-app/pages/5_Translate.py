@@ -146,12 +146,52 @@ st.markdown("---")
 
 # ── Helpers (defined before use) ─────────────────────────────────────────────
 def _get_ai_client():
-    """Return (client, provider) or (None, None) if no key configured."""
+    """
+    Return (client, provider) or (None, None) if no key configured.
+
+    Priority: Streamlit secrets → environment variables.
+    Supports: Anthropic, DeepSeek (OpenAI-compatible), OpenAI.
+
+    DeepSeek base_url is set to https://api.deepseek.com (no /v1 suffix —
+    the OpenAI SDK appends /v1 automatically, preventing /v1/v1 double-path).
+    """
     import os
-    from dotenv import load_dotenv
-    load_dotenv()
+
+    # ── 1. Streamlit secrets ──────────────────────────────────────────────────
+    try:
+        key = st.secrets.get("ANTHROPIC_API_KEY", "").strip()
+        if key and not key.startswith("your_"):
+            import anthropic
+            return anthropic.Anthropic(api_key=key), "anthropic"
+    except Exception:
+        pass
+
+    try:
+        key = st.secrets.get("DEEPSEEK_API_KEY", "").strip()
+        if key and not key.startswith("your_"):
+            from openai import OpenAI as _OAI
+            # base_url must NOT end with /v1 — SDK adds it automatically
+            return _OAI(api_key=key, base_url="https://api.deepseek.com"), "deepseek"
+    except Exception:
+        pass
+
+    try:
+        key = st.secrets.get("OPENAI_API_KEY", "").strip()
+        if key and not key.startswith("your_"):
+            from openai import OpenAI as _OAI
+            return _OAI(api_key=key), "openai"
+    except Exception:
+        pass
+
+    # ── 2. Environment variables ──────────────────────────────────────────────
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
 
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    deepseek_key  = os.getenv("DEEPSEEK_API_KEY", "").strip()
     openai_key    = os.getenv("OPENAI_API_KEY", "").strip()
 
     if anthropic_key and not anthropic_key.startswith("your_"):
@@ -161,10 +201,17 @@ def _get_ai_client():
         except Exception:
             pass
 
+    if deepseek_key and not deepseek_key.startswith("your_"):
+        try:
+            from openai import OpenAI as _OAI
+            return _OAI(api_key=deepseek_key, base_url="https://api.deepseek.com"), "deepseek"
+        except Exception:
+            pass
+
     if openai_key and not openai_key.startswith("your_"):
         try:
-            import openai as _openai
-            return _openai.OpenAI(api_key=openai_key), "openai"
+            from openai import OpenAI as _OAI
+            return _OAI(api_key=openai_key), "openai"
         except Exception:
             pass
 
@@ -327,14 +374,20 @@ elif mode == "file_translate":
 
         ai_client, ai_provider = _get_ai_client()
         if ai_client is None:
-            st.error("未找到 AI API Key。請在 .env 檔案中設定 ANTHROPIC_API_KEY 或 OPENAI_API_KEY。")
+            st.error(
+                "未找到 AI API Key。請在 Streamlit Cloud Secrets 或 .env 檔案中設定：\n"
+                "DEEPSEEK_API_KEY、ANTHROPIC_API_KEY 或 OPENAI_API_KEY。"
+            )
         else:
+            # ── Step 1: Extract text ──────────────────────────────────────────
             with st.spinner(f"抽取 {fname} 文字中..."):
                 try:
                     from utils.translator import (
                         extract_text_from_docx,
                         extract_text_from_xlsx,
                         extract_text_from_pdf,
+                        MAX_TOTAL_CHARS,
+                        CHUNK_SIZE,
                     )
                     if ext == ".docx":
                         raw_text = extract_text_from_docx(file_bytes)
@@ -350,31 +403,74 @@ elif mode == "file_translate":
                         st.warning("未能從文件中抽取文字。請確認文件包含可讀文字（非掃描圖片）。")
                         st.stop()
 
-                    MAX_CHARS = 8000
-                    if len(raw_text) > MAX_CHARS:
-                        st.warning(f"文件文字超過 {MAX_CHARS} 字，只翻譯前 {MAX_CHARS} 字。")
-                        raw_text = raw_text[:MAX_CHARS]
-
                 except Exception as e:
                     st.error(f"文字抽取失敗：{e}")
                     st.stop()
 
-            with st.spinner("Translator Agent 翻譯中..."):
-                try:
-                    from utils.translator import translate_text_via_ai
-                    translated = translate_text_via_ai(
-                        text=raw_text,
-                        direction=direction,
-                        ai_client=ai_client,
-                        ai_provider=ai_provider,
+            # ── Step 2: Size check & user info ────────────────────────────────
+            char_count = len(raw_text)
+            if char_count > MAX_TOTAL_CHARS:
+                st.warning(
+                    f"⚠️ 文件過大（{char_count:,} 字），超過單次上限 {MAX_TOTAL_CHARS:,} 字。"
+                    f"系統將只翻譯前 {MAX_TOTAL_CHARS:,} 字。"
+                    f"建議先分拆章節或只翻譯指定頁面。"
+                )
+            elif char_count > 20_000:
+                st.info(
+                    f"ℹ️ 文件共 {char_count:,} 字，將分段翻譯，預計需較長時間。請耐心等候。"
+                )
+
+            # ── Step 3: Chunk translation with progress ───────────────────────
+            from utils.translator import translate_chunks_via_ai
+
+            # Streamlit progress bar + status text
+            progress_bar  = st.progress(0)
+            status_text   = st.empty()
+
+            def _on_progress(current: int, total: int, message: str):
+                progress_bar.progress(current / total)
+                status_text.text(message)
+
+            try:
+                result = translate_chunks_via_ai(
+                    text=raw_text,
+                    direction=direction,
+                    ai_client=ai_client,
+                    ai_provider=ai_provider,
+                    progress_callback=_on_progress,
+                )
+
+                progress_bar.progress(1.0)
+                status_text.empty()
+
+                translated = result["translated"]
+
+                # ── Summary ───────────────────────────────────────────────────
+                if result["is_complete"] and not result["truncated"]:
+                    st.success(
+                        f"✅ 翻譯完成。共 {result['total_chunks']} 段，全部成功。"
                     )
-                    st.session_state["last_translation"]           = translated
-                    st.session_state["last_translation_direction"] = direction
-                    st.session_state["last_translation_source"]    = fname
-                    st.session_state["last_translation_mode"]      = "file_translate"
-                    st.success("翻譯完成。")
-                except Exception as e:
-                    st.error(f"翻譯失敗：{e}")
+                else:
+                    msgs = []
+                    if result["truncated"]:
+                        msgs.append(f"文件已截至前 {MAX_TOTAL_CHARS:,} 字")
+                    if result["failed_chunks"] > 0:
+                        msgs.append(
+                            f"成功 {result['success_chunks']} 段 / 失敗 {result['failed_chunks']} 段"
+                        )
+                        for fd in result["failed_details"]:
+                            msgs.append(f"  • 第 {fd['chunk']} 段錯誤：{fd['error']}")
+                    st.warning("⚠️ 翻譯部分完成：\n" + "\n".join(msgs))
+
+                st.session_state["last_translation"]           = translated
+                st.session_state["last_translation_direction"] = direction
+                st.session_state["last_translation_source"]    = fname
+                st.session_state["last_translation_mode"]      = "file_translate"
+
+            except Exception as e:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(f"翻譯失敗：{e}")
 
     if (
         "last_translation" in st.session_state
