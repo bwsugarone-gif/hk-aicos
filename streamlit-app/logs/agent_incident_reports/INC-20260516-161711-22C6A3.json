@@ -1,0 +1,14 @@
+{
+  "incident_id": "INC-20260516-161711-22C6A3",
+  "timestamp": "2026-05-16T16:17:11.926149+00:00",
+  "project_ref": "BW-TEST-001",
+  "session_id": "test-session-governance",
+  "failed_agent": "pm",
+  "error_type": "empty_output",
+  "error_message": "Agent returned empty string.",
+  "recovery_action": "Used fallback text. Other agents continued.",
+  "whether_report_generated": true,
+  "affected_sections": [
+    "pm"
+  ]
+}

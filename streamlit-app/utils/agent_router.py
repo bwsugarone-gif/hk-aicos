@@ -1,9 +1,12 @@
 """
-HK-AICOS Phase 2.0 agent routing.
+HK-AICOS Phase 2.5F+ agent routing with personality & governance layer.
 
 The Agent Selector is driven by the full agent library. Prompts are generated
 from the selected agents only, with optional file-backed instructions loaded
 from the project-level agents directory.
+
+Governance layer (agent_governance.py) injects personality profiles and
+output rules into every prompt automatically.
 """
 
 from pathlib import Path
@@ -311,7 +314,7 @@ def build_prompt_from_agents(
 
     reference_text = rag_context.strip() if rag_context else "沒有額外參考資料。"
 
-    return f"""你是 HK-AICOS 工程分析系統，代表 Buildway Tech (HK) Limited 生成客戶可讀的繁體中文分析報告。
+    base_prompt = f"""你是 HK-AICOS 工程分析系統，代表 Buildway Tech (HK) Limited 生成客戶可讀的繁體中文分析報告。
 請根據用戶選擇的 Agent 動態分析，不要加入未被選中的 Agent 章節。
 不要輸出大量 Markdown 符號，例如 #、##、**、===、---。
 不要提及 backend、prompt、model、API、debug 或系統內部字眼。
@@ -341,6 +344,13 @@ Agent instructions：
 請按以下次序輸出，每個標題使用原文，不要使用 Markdown 標題符號：
 {chr(10).join(output_sections)}
 """
+
+    # Inject personality & output rules from governance layer (graceful — no crash if missing)
+    try:
+        from utils.agent_governance import enrich_prompt_with_personality
+        return enrich_prompt_with_personality(base_prompt, selected_agent_ids or [])
+    except Exception:
+        return base_prompt
 
 
 def build_analysis_prompt(
