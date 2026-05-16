@@ -283,6 +283,41 @@ else:
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ── 參考文件 ──────────────────────────────────────────────────────────────────
+try:
+    from utils.rag_reader import get_matched_rag_docs
+    from utils.agent_router import AGENT_DEFINITIONS as _AD_REF
+
+    _reg_keys = []
+    for aid in selected_agents:
+        if aid in _AD_REF:
+            for reg in _AD_REF[aid]["regulations"]:
+                if reg not in _reg_keys:
+                    _reg_keys.append(reg)
+
+    _rag_docs = get_matched_rag_docs(_reg_keys, top_k=3) if _reg_keys else []
+except Exception:
+    _rag_docs = []
+
+if _rag_docs:
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>📚 參考文件</h3>', unsafe_allow_html=True)
+    for _doc in _rag_docs:
+        _dept  = _doc.get("source_department", "")
+        _cat   = _doc.get("category", "").replace("_", " ")
+        _summ  = _doc.get("summary", "")
+        _fname = _doc.get("file_name", "")
+        _tag   = f" · {_dept}" if _dept else ""
+        _cat_tag = f" · {_cat}" if _cat else ""
+        st.markdown(
+            f'<div style="font-size:0.9rem;padding:0.4rem 0;border-bottom:1px solid #f0f0f0;">'
+            f'📄 <strong>{_fname}</strong>{_tag}{_cat_tag}'
+            + (f'<br/><span style="color:#666;font-size:0.82rem;">{_summ}</span>' if _summ else "")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 需要專業人士確認 ──────────────────────────────────────────────────────────
 professionals = data.get("professionals", [])
 if professionals:

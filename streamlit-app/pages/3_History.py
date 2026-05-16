@@ -15,6 +15,42 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.session_memory import get_all_sessions, get_sessions_by_project
 from utils.logo_helper import sidebar_logo
 
+
+# ── RAG reference helper ──────────────────────────────────────────────────────
+def _build_rag_refs_html(agent_ids: list) -> str:
+    """
+    Return an HTML snippet listing matched RAG documents for the given agents.
+    Returns empty string if no matches or rag_manager unavailable.
+    """
+    try:
+        from utils.agent_router import AGENT_DEFINITIONS as _AD
+        from utils.rag_reader import get_matched_rag_docs
+
+        reg_keys = []
+        for aid in agent_ids:
+            if aid in _AD:
+                for reg in _AD[aid]["regulations"]:
+                    if reg not in reg_keys:
+                        reg_keys.append(reg)
+
+        docs = get_matched_rag_docs(reg_keys, top_k=2) if reg_keys else []
+        if not docs:
+            return ""
+
+        items = "".join(
+            f'<span style="font-size:0.78rem;color:#1a3a5c;margin-right:0.6rem;">'
+            f'📄 {d["file_name"]}'
+            + (f' [{d["source_department"]}]' if d.get("source_department") else "")
+            + "</span>"
+            for d in docs
+        )
+        return (
+            '<div style="margin-top:0.4rem;font-size:0.78rem;color:#888;">'
+            f'<strong>參考文件：</strong>{items}</div>'
+        )
+    except Exception:
+        return ""
+
 st.set_page_config(
     page_title="歷史紀錄 | HK-AICOS",
     page_icon="🕘",
@@ -242,6 +278,7 @@ else:
     <strong>問題：</strong>{q[:120] + ('…' if len(q) > 120 else '')}<br/>
     <strong>摘要：</strong>{summary}
   </div>
+  {_build_rag_refs_html(agents)}
   <div style="font-size:0.75rem; color:#aaa; margin-top:0.5rem;">Session ID: {sid}</div>
 </div>
 """, unsafe_allow_html=True)
