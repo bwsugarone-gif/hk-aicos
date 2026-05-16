@@ -159,7 +159,8 @@ with st.sidebar:
     st.page_link("pages/1_Upload.py",   label="📤 上載分析")
     st.page_link("pages/2_Report.py",   label="📄 分析報告")
     st.page_link("pages/3_History.py",  label="🕘 歷史紀錄")
-    st.page_link("pages/4_About.py",    label="ℹ️ 關於 Buildway Tech")
+    st.page_link("pages/5_Translate.py", label="📑 文件翻譯與轉換")
+    st.page_link("pages/4_About.py",     label="ℹ️ 關於 Buildway Tech")
     st.markdown("---")
     st.markdown(
         '<div style="font-size:0.78rem; color:#aac4e0;">🔒 所有資料安全處理</div>',
