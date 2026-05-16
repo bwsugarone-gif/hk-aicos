@@ -36,7 +36,7 @@ if hasattr(sys.stderr, "reconfigure"):
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _BASE_DIR   = Path(__file__).parent.parent          # streamlit-app/
 _FONTS_DIR  = _BASE_DIR / "assets" / "fonts"
-_FONT_FILE  = _FONTS_DIR / "NotoSansCJKtc-Regular.otf"
+_FONT_FILE  = _FONTS_DIR / "NotoSansTC-Regular.ttf"
 REPORTS_DIR = _BASE_DIR / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
@@ -430,20 +430,32 @@ Buildway Tech (HK) Limited &nbsp;|&nbsp; {now.strftime('%Y-%m-%d %H:%M')} &nbsp;
 
 
 # ── Font registration (module-level, done once) ───────────────────────────────
-# Priority: bundled OTF → bundled VF TTF → Linux system → Windows system
+# Priority order (all use TTFont for full embedding — no CID fonts):
+#   1. NotoSansTC-Regular.ttf  ← primary (static TTF, best mobile compatibility)
+#   2. NotoSansCJKtc-Regular.otf ← bundled OTF fallback
+#   3. NotoSansTC-VF.ttf       ← variable font fallback
+#   4. Linux system Noto CJK
+#   5. Windows system CJK fonts (msjh / msyh / mingliu / simsun)
+#
+# NOTE: Helvetica, Times-Roman, STSong-Light, MSung-Light are NOT used for
+#       Chinese text — they do not embed and cause mobile rendering failures.
+
 _FONT_CANDIDATES = [
-    ("NotoSansCJKTC", _FONTS_DIR / "NotoSansCJKtc-Regular.otf"),
-    ("NotoSansCJKTC", _FONTS_DIR / "NotoSansTC-VF.ttf"),
-    ("NotoSansCJKTC", _FONTS_DIR / "NotoSansTC-Regular.ttf"),
-    ("NotoSansCJKTC", Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")),
-    ("NotoSansCJKTC", Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc")),
-    ("NotoSansCJKTC", Path("C:/Windows/Fonts/msjh.ttc")),
-    ("NotoSansCJKTC", Path("C:/Windows/Fonts/msyh.ttc")),
-    ("NotoSansCJKTC", Path("C:/Windows/Fonts/mingliu.ttc")),
+    ("NotoSansTC", _FONTS_DIR / "NotoSansTC-Regular.ttf"),
+    ("NotoSansTC", _FONTS_DIR / "NotoSansCJKtc-Regular.otf"),
+    ("NotoSansTC", _FONTS_DIR / "NotoSansTC-VF.ttf"),
+    ("NotoSansTC", Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")),
+    ("NotoSansTC", Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc")),
+    ("NotoSansTC", Path("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc")),
+    ("NotoSansTC", Path("C:/Windows/Fonts/msjh.ttc")),
+    ("NotoSansTC", Path("C:/Windows/Fonts/msyh.ttc")),
+    ("NotoSansTC", Path("C:/Windows/Fonts/mingliu.ttc")),
+    ("NotoSansTC", Path("C:/Windows/Fonts/simsun.ttc")),
 ]
 
-FONT = "NotoSansCJKTC"
+FONT = "NotoSansTC"
 _font_registered = False
+_font_path_used: str = ""
 
 for _fname, _fpath in _FONT_CANDIDATES:
     if _fpath.exists():
@@ -453,16 +465,24 @@ for _fname, _fpath in _FONT_CANDIDATES:
             else:
                 pdfmetrics.registerFont(TTFont(_fname, str(_fpath)))
             FONT = _fname
+            _font_path_used = str(_fpath)
             _font_registered = True
+            print(f"[report_generator] Font registered: {_fname} from {_fpath}", file=sys.stderr)
             break
-        except Exception:
+        except Exception as _e:
+            print(f"[report_generator] WARNING: could not load {_fpath}: {_e}", file=sys.stderr)
             continue
 
 if not _font_registered:
-    # Absolute last resort — will not embed but won't crash
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-    FONT = "STSong-Light"
+    # Last resort: use Helvetica (ASCII only) and warn loudly.
+    # Chinese characters will be missing but the app will NOT crash.
+    FONT = "Helvetica"
+    print(
+        "[report_generator] WARNING: No CJK font found. "
+        "Chinese text will not render correctly in PDF. "
+        "Please add NotoSansTC-Regular.ttf to streamlit-app/assets/fonts/",
+        file=sys.stderr,
+    )
 
 
 def _rl_styles() -> dict:
