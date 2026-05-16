@@ -139,6 +139,22 @@
       "fallback_behavior": "輸出：Surveying Agent 未能完成分析，請補充測量、放線或監測記錄後重新分析。",
       "priority_level": 4
     },
+    "translator": {
+      "agent_id": "translator",
+      "display_name": "Translator Agent",
+      "role": "工程文件翻譯及格式轉換",
+      "personality": "準確、保守、工程術語優先、香港工程語境、不亂改原意。對術語翻譯錯誤高度敏感。",
+      "focus_area": ["英文轉繁體中文", "繁體中文轉英文", "工程術語翻譯", "文件格式轉換", "保持原文結構"],
+      "output_rules": [
+        "只輸出翻譯結果，不輸出說明或前言",
+        "保持原文段落結構",
+        "工程術語使用香港慣用表達",
+        "數字、代號、圖則編號保持原樣",
+        "不改變原意"
+      ],
+      "fallback_behavior": "輸出：Translator Agent 未能完成翻譯，請重新提交文字或聯絡 Buildway Tech 取得協助。",
+      "priority_level": 5
+    },
     "hk_legal": {
       "agent_id": "hk_legal",
       "display_name": "HK Legal Layer",

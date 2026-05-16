@@ -3,6 +3,8 @@ pillow>=10.0.0
 pypdf>=4.0.0
 python-dotenv>=1.0.0
 reportlab>=4.0.0
+# weasyprint requires GTK/Pango native libs — not available on Windows/Streamlit Cloud
+# PDF generation uses reportlab TTFont with NotoSansCJKtc-Regular.otf instead
 anthropic>=0.25.0
 openai>=1.30.0
 python-docx>=1.1.0
