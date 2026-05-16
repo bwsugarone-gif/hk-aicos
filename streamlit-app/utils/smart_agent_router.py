@@ -120,7 +120,7 @@ def recommend_agents(
     Priority:
     1. File-type + content keyword rules
     2. Question keyword boosting
-    3. Analysis-type defaults as fallback
+    3. PM + Safety as fallback
     """
     file_type_norm = (file_type or "").lower().strip()
     content_lower  = (file_content or "").lower()
@@ -148,11 +148,9 @@ def recommend_agents(
             if any(kw in question_lower for kw in keywords):
                 recommended.append(agent_id)
 
-    # Step 3: Fallback to analysis-type defaults
+    # Step 3: Fallback only when no specific recommendation is available
     if not recommended:
-        recommended = list(
-            _ANALYSIS_TYPE_DEFAULTS.get(analysis_type, ["pm", "safety", "engineering"])
-        )
+        recommended = ["pm", "safety"]
 
     # Deduplicate while preserving order
     seen: set[str] = set()

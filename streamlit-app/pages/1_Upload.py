@@ -382,6 +382,13 @@ _recommended = recommend_agents(
     question=_smart_q,
     analysis_type=_smart_type,
 )
+_auto_selected_agents = _recommended if _recommended else ["pm", "safety"]
+
+
+def _apply_agent_checkbox_state(agent_ids: list[str]) -> None:
+    st.session_state["selected_agents"] = list(agent_ids)
+    for _agent_id in AGENT_ORDER:
+        st.session_state[f"agent_cb_{_agent_id}"] = _agent_id in agent_ids
 
 # Only auto-apply recommendation on first load or when file changes
 _file_sig = f"{_smart_ftype}:{st.session_state.get('current_file_name','')}"
@@ -389,20 +396,20 @@ if (
     "selected_agents" not in st.session_state
     or st.session_state.get("_last_file_sig") != _file_sig
 ):
-    st.session_state["selected_agents"] = _recommended
+    _apply_agent_checkbox_state(_auto_selected_agents)
     st.session_state["_last_file_sig"]  = _file_sig
 
 # Show smart recommendation notice
-if _recommended:
+if _auto_selected_agents:
     rec_badges = "".join(
         f'<span class="agent-badge">{AGENTS[aid]["icon"]} {AGENTS[aid]["label"]}</span>'
-        for aid in _recommended
+        for aid in _auto_selected_agents
         if aid in AGENTS
     )
     st.markdown(
         f'<div style="background:#eaf0fb;border-left:4px solid #1a3a5c;'
         f'border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.8rem;font-size:0.9rem;">'
-        f'💡 系統已根據文件類型及問題建議參與 Agent，可自行調整。<br/>'
+        f'💡 系統已根據文件類型自動選擇建議 Agent，可自行調整。<br/>'
         f'建議：{rec_badges}</div>',
         unsafe_allow_html=True,
     )
