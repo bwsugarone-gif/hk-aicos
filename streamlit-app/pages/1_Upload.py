@@ -431,10 +431,10 @@ for idx, agent_id in enumerate(AGENT_ORDER):
         if checked:
             new_selection.append(agent_id)
 
-# Update session state (don't allow empty selection)
-if new_selection:
-    st.session_state["selected_agents"] = new_selection
-else:
+# Update session state and warn on empty selection
+st.session_state["selected_agents"] = new_selection
+
+if not new_selection:
     st.warning("⚠️ 請至少選擇一個 Agent。")
 
 # Show selected agent badges + over-selection warning
