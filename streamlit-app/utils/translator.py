@@ -472,13 +472,40 @@ def _xlsx_image_anchor_row(xlsx_image) -> int:
 
 
 def _xlsx_image_bytes(xlsx_image) -> bytes:
-    """Extract raw bytes from an openpyxl embedded image."""
-    data = xlsx_image._data()
-    if isinstance(data, bytes):
+    """
+    Extract raw bytes from an openpyxl embedded image.
+
+    openpyxl stores image data in different ways depending on version:
+      - older versions: xlsx_image._data is a callable (method)
+      - newer versions: xlsx_image._data is a bytes property or BytesIO
+    We try both forms so this works across openpyxl versions.
+    """
+    # Try as a callable first (older openpyxl)
+    raw = getattr(xlsx_image, "_data", None)
+    if callable(raw):
+        data = raw()
+    else:
+        data = raw
+
+    if isinstance(data, bytes) and data:
         return data
     if hasattr(data, "read"):
-        return data.read()
-    raise ValueError("unsupported openpyxl image data")
+        result = data.read()
+        if isinstance(result, bytes) and result:
+            return result
+
+    # Fallback: try ref attribute (openpyxl stores path inside zip)
+    ref = getattr(xlsx_image, "ref", None)
+    if ref and hasattr(xlsx_image, "_parent"):
+        try:
+            parent = xlsx_image._parent
+            archive = getattr(parent, "_archive", None) or getattr(parent, "archive", None)
+            if archive:
+                return archive.read(ref)
+        except Exception:
+            pass
+
+    raise ValueError(f"unsupported openpyxl image data type: {type(data)}")
 
 
 def _build_xlsx_image_flowable(xlsx_image, max_width: float, max_height: float):
