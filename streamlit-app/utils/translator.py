@@ -449,15 +449,26 @@ def build_translated_txt(translated_text: str, source_filename: str, direction: 
 
 
 # ── Excel → PDF ───────────────────────────────────────────────────────────────
-def _xlsx_image_anchor_row(xlsx_image) -> int:
-    """Return approximate 1-based row for an openpyxl embedded image."""
+
+def _xlsx_image_anchor(xlsx_image):
+    """
+    Return (row_0based, col_0based) anchor from an openpyxl image.
+    Returns (None, None) if anchor cannot be read.
+    openpyxl uses 0-based row/col in anchor._from.
+    """
     try:
         marker = getattr(xlsx_image.anchor, "_from", None)
         if marker is not None:
-            return int(marker.row) + 1
+            return int(marker.row), int(marker.col)
     except Exception:
         pass
-    return 0
+    return None, None
+
+
+def _xlsx_image_anchor_row(xlsx_image) -> int:
+    """Return approximate 1-based row for an openpyxl embedded image (for sorting)."""
+    row, _ = _xlsx_image_anchor(xlsx_image)
+    return (row + 1) if row is not None else 0
 
 
 def _xlsx_image_bytes(xlsx_image) -> bytes:
@@ -471,7 +482,10 @@ def _xlsx_image_bytes(xlsx_image) -> bytes:
 
 
 def _build_xlsx_image_flowable(xlsx_image, max_width: float, max_height: float):
-    """Create a resized ReportLab Image flowable from an openpyxl image."""
+    """
+    Create a resized ReportLab Image flowable from an openpyxl image.
+    Constrains to max_width × max_height while preserving aspect ratio.
+    """
     image_bytes = _xlsx_image_bytes(xlsx_image)
     image_stream = io.BytesIO(image_bytes)
 
@@ -486,17 +500,54 @@ def _build_xlsx_image_flowable(xlsx_image, max_width: float, max_height: float):
     if not width_px or not height_px:
         width_px, height_px = 320, 180
 
-    # Treat pixels roughly as points, then constrain to PDF content area.
+    # Treat pixels roughly as points, then constrain to cell/content area.
     scale = min(max_width / width_px, max_height / height_px, 1.0)
     draw_width = width_px * scale
     draw_height = height_px * scale
     return RLImage(image_stream, width=draw_width, height=draw_height)
 
 
+def _build_image_cell_content(xlsx_image, col_width: float, cell_text: str,
+                               cell_style, font_name: str):
+    """
+    Build a list of flowables for a table cell that contains an image.
+    Image is shown first; if there is also text, it appears below the image.
+    Returns a list suitable for use inside a KeepInFrame or as a Paragraph list.
+    """
+    from reportlab.platypus import KeepInFrame
+
+    # Leave a small margin inside the cell
+    img_max_w = max(col_width - 4, 10)
+    # Row height will be auto-expanded; cap image height at a reasonable value
+    img_max_h = 80 * mm
+
+    try:
+        img_flowable = _build_xlsx_image_flowable(xlsx_image, img_max_w, img_max_h)
+    except Exception as e:
+        print(f"[translator] WARNING: image flowable failed: {e}", file=sys.stderr)
+        return None  # signal failure
+
+    items = [img_flowable]
+    if cell_text and cell_text.strip():
+        safe = cell_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        items.append(Paragraph(safe[:100], cell_style))
+
+    # Wrap in KeepInFrame so it doesn't overflow the cell horizontally
+    frame = KeepInFrame(
+        maxWidth=col_width,
+        maxHeight=0,   # 0 = unlimited height (row will expand)
+        content=items,
+        mode="shrink",
+    )
+    return frame
+
+
 def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
     """
     Convert XLSX to PDF using reportlab.
     Renders each sheet as a table in the PDF.
+    Images are placed in the table cell matching their Excel anchor (row, col).
+    Images that cannot be positioned fall back to an appendix section.
     """
     if not _REPORTLAB_OK:
         raise RuntimeError("reportlab not installed")
@@ -507,6 +558,8 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
         raise RuntimeError("openpyxl not installed")
 
     font_name = _ensure_font()
+
+    # Must NOT use read_only=True — _images is unavailable in read-only mode
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
 
     buf = io.BytesIO()
@@ -533,15 +586,24 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
         "cell", fontName=font_name, fontSize=8, leading=11,
         textColor=colors.HexColor("#222222"),
     )
+    warning_style = ParagraphStyle(
+        "warning", fontName=font_name, fontSize=9, leading=13,
+        textColor=colors.HexColor("#cc6600"), spaceBefore=6, spaceAfter=4,
+    )
     disclaimer_style = ParagraphStyle(
         "disclaimer", fontName=font_name, fontSize=8, leading=12,
         textColor=colors.HexColor("#888888"),
     )
 
     story = []
-    image_warning = False
+    any_image_warning = False   # True if any image failed entirely
+    any_fallback_image = False  # True if any image fell back to appendix
+
     story.append(Paragraph(f"Excel 轉換：{source_filename}", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#c9a84c"), spaceAfter=6))
+
+    MAX_COLS = 10
+    available_width = A4[0] - 30 * mm
 
     for sheet in wb.worksheets:
         story.append(Paragraph(f"工作表：{sheet.title}", sheet_style))
@@ -551,72 +613,139 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
             story.append(Paragraph("（此工作表為空）", cell_style))
             continue
 
-        # Build table data — cap columns to avoid overflow
-        MAX_COLS = 10
+        # ── Step 1: Build image anchor map ────────────────────────────────────
+        # key: (row_0based, col_0based) → openpyxl image object
+        # Images whose anchor falls outside the table go to fallback list.
+        sheet_images = list(getattr(sheet, "_images", []) or [])
+        image_map: dict = {}       # (row, col) → xlsx_image
+        fallback_images: list = [] # images that couldn't be mapped to a cell
+
+        num_data_rows = len(rows)
+        num_data_cols = min(MAX_COLS, len(rows[0]) if rows else 0)
+
+        for xlsx_image in sheet_images:
+            try:
+                anchor_row, anchor_col = _xlsx_image_anchor(xlsx_image)
+                if (anchor_row is not None and anchor_col is not None
+                        and 0 <= anchor_row < num_data_rows
+                        and 0 <= anchor_col < num_data_cols):
+                    # If multiple images share a cell, keep the first one
+                    key = (anchor_row, anchor_col)
+                    if key not in image_map:
+                        image_map[key] = xlsx_image
+                    else:
+                        fallback_images.append(xlsx_image)
+                else:
+                    fallback_images.append(xlsx_image)
+            except Exception as e:
+                print(f"[translator] WARNING: could not read image anchor: {e}", file=sys.stderr)
+                fallback_images.append(xlsx_image)
+
+        # ── Step 2: Build table data with images in correct cells ─────────────
+        col_width = available_width / max(num_data_cols, 1)
+
+        # Track which rows need extra height because they contain images
+        row_heights: list = []
+
         table_data = []
-        for row in rows:
+        for r_idx, row in enumerate(rows):
             row_cells = []
-            for cell in row[:MAX_COLS]:
-                val = str(cell) if cell is not None else ""
-                safe = val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                row_cells.append(Paragraph(safe[:100], cell_style))
-            # Pad if fewer columns
-            while len(row_cells) < min(MAX_COLS, len(rows[0])):
+            row_has_image = False
+
+            for c_idx, cell_val in enumerate(row[:MAX_COLS]):
+                cell_text = str(cell_val) if cell_val is not None else ""
+                img_key = (r_idx, c_idx)
+
+                if img_key in image_map:
+                    # This cell has an image — build combined cell content
+                    row_has_image = True
+                    cell_content = _build_image_cell_content(
+                        image_map[img_key],
+                        col_width,
+                        cell_text,
+                        cell_style,
+                        font_name,
+                    )
+                    if cell_content is not None:
+                        row_cells.append(cell_content)
+                    else:
+                        # Image build failed — fall back to text only
+                        any_image_warning = True
+                        safe = cell_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        row_cells.append(Paragraph(safe[:100], cell_style))
+                        fallback_images.append(image_map[img_key])
+                else:
+                    safe = cell_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    row_cells.append(Paragraph(safe[:100], cell_style))
+
+            # Pad if fewer columns than header
+            while len(row_cells) < num_data_cols:
                 row_cells.append(Paragraph("", cell_style))
+
             table_data.append(row_cells)
+
+            # Rows with images get a taller minimum height to show the image
+            if row_has_image:
+                row_heights.append(None)   # None = auto (ReportLab will expand)
+            else:
+                row_heights.append(None)   # all auto; images drive height via KeepInFrame
 
         if not table_data:
             continue
 
-        num_cols = len(table_data[0])
-        available_width = A4[0] - 30*mm
-        col_width = available_width / num_cols
-
-        tbl = Table(table_data, colWidths=[col_width] * num_cols, repeatRows=1)
+        tbl = Table(
+            table_data,
+            colWidths=[col_width] * num_data_cols,
+            rowHeights=row_heights,
+            repeatRows=1,
+        )
         tbl.setStyle(TableStyle([
-            ("BACKGROUND",  (0, 0), (-1, 0),  colors.HexColor("#1a3a5c")),
-            ("TEXTCOLOR",   (0, 0), (-1, 0),  colors.white),
-            ("FONTNAME",    (0, 0), (-1, -1), font_name),
-            ("FONTSIZE",    (0, 0), (-1, -1), 8),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f7fa")]),
-            ("GRID",        (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
-            ("VALIGN",      (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING",  (0, 0), (-1, -1), 3),
+            ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#1a3a5c")),
+            ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
+            ("FONTNAME",      (0, 0), (-1, -1), font_name),
+            ("FONTSIZE",      (0, 0), (-1, -1), 8),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f7fa")]),
+            ("GRID",          (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(tbl)
-
-        # Render embedded worksheet images. openpyxl stores these in the
-        # private-but-standard worksheet._images list.
-        sheet_images = list(getattr(sheet, "_images", []) or [])
-        if sheet_images:
-            story.append(Spacer(1, 6))
-            story.append(Paragraph("內嵌圖片", sheet_style))
-
-        for img_idx, xlsx_image in enumerate(sorted(sheet_images, key=_xlsx_image_anchor_row), 1):
-            try:
-                anchor_row = _xlsx_image_anchor_row(xlsx_image)
-                row_label = f"約第 {anchor_row} 行附近" if anchor_row else "原工作表位置附近"
-                story.append(Paragraph(f"圖片 {img_idx}（{row_label}）", cell_style))
-                story.append(_build_xlsx_image_flowable(
-                    xlsx_image,
-                    max_width=available_width,
-                    max_height=85 * mm,
-                ))
-                story.append(Spacer(1, 5))
-            except Exception as e:
-                image_warning = True
-                print(f"[translator] WARNING: could not render XLSX image: {e}", file=sys.stderr)
-
         story.append(Spacer(1, 8))
 
-    if image_warning:
+        # ── Step 3: Fallback appendix for images that couldn't be placed ──────
+        if fallback_images:
+            any_fallback_image = True
+            story.append(Paragraph(
+                "部分圖片未能按原 Excel 位置顯示，已改為附錄顯示。",
+                warning_style,
+            ))
+            story.append(Paragraph(f"【{sheet.title}】附錄圖片", sheet_style))
+            for fb_idx, xlsx_image in enumerate(fallback_images, 1):
+                try:
+                    anchor_row, anchor_col = _xlsx_image_anchor(xlsx_image)
+                    if anchor_row is not None and anchor_col is not None:
+                        loc_label = f"原位置約 第{anchor_row + 1}行 / 第{anchor_col + 1}列"
+                    else:
+                        loc_label = "原工作表位置不明"
+                    story.append(Paragraph(f"附錄圖片 {fb_idx}（{loc_label}）", cell_style))
+                    story.append(_build_xlsx_image_flowable(
+                        xlsx_image,
+                        max_width=available_width,
+                        max_height=85 * mm,
+                    ))
+                    story.append(Spacer(1, 5))
+                except Exception as e:
+                    any_image_warning = True
+                    print(f"[translator] WARNING: could not render fallback XLSX image: {e}", file=sys.stderr)
+
+    if any_image_warning:
         story.append(Paragraph("部分 Excel 圖片未能轉換，已保留文字內容。", disclaimer_style))
         story.append(Spacer(1, 4))
 
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc"), spaceAfter=4))
     story.append(Paragraph(
-        f"由 HK-AICOS 轉換 | Buildway Tech (HK) Limited",
+        "由 HK-AICOS 轉換 | Buildway Tech (HK) Limited",
         disclaimer_style,
     ))
 
