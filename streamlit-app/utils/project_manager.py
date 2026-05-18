@@ -170,6 +170,9 @@ def save_session(
     calibrated_risk_score: float = 0.0,
     highest_risk_agent: str = "",
     calibration_reason: str = "",
+    ocr_used: bool = False,
+    ocr_page_count: int = 0,
+    ocr_status: str = "",
 ) -> dict:
     """Save one project session JSON and update PM memory summaries."""
     if not str(project_ref or "").strip():
@@ -193,6 +196,9 @@ def save_session(
         "calibrated_risk_score": calibrated_risk_score,
         "highest_risk_agent": str(highest_risk_agent or ""),
         "calibration_reason": str(calibration_reason or ""),
+        "ocr_used": bool(ocr_used),
+        "ocr_page_count": int(ocr_page_count or 0),
+        "ocr_status": str(ocr_status or ""),
         "government_departments": list(government_departments or []),
         "report_path": str(report_path or ""),
         "question": str(question or "")[:200],

@@ -13,6 +13,8 @@ from pathlib import Path
 from PIL import Image
 import pypdf
 
+from utils.ocr_engine import extract_text_with_ocr
+
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -172,25 +174,50 @@ def load_file_content(file_path: Path) -> dict:
 
     if ext in {".jpg", ".jpeg", ".png"}:
         description = get_image_description(file_path)
+        ocr = extract_text_with_ocr(file_path)
+        ocr_text = ocr.get("extracted_text", "")
+        content = description
+        if ocr_text:
+            content += "\n\n【OCR 文字】\n" + ocr_text
         return {
             "type": "image",
             "filename": filename,
-            "description": description,
-            "content": description,
+            "description": (
+                description + "；已透過 OCR 成功抽取文字"
+                if ocr.get("ocr_status") == "OCR_SUCCESS" else description
+            ),
+            "content": content,
             "path": file_path,
+            "ocr_used": bool(ocr.get("ocr_used")),
+            "ocr_page_count": int(ocr.get("ocr_page_count", 0) or 0),
+            "ocr_status": ocr.get("ocr_status", "NOT_ATTEMPTED"),
+            "ocr_message": ocr.get("ocr_message", ""),
+            "ocr_warning": ocr.get("warning", ""),
         }
 
     elif ext == ".pdf":
-        text = extract_pdf_text(file_path)
+        ocr = extract_text_with_ocr(file_path)
+        text = ocr.get("extracted_text") or extract_pdf_text(file_path)
         if len(text) > 8000:
             text = text[:8000] + "\n\n[... content truncated for analysis ...]"
         description = f"PDF 文件（已抽取 {len(text)} 字元）"
+        if ocr.get("ocr_status") == "OCR_SUCCESS":
+            description += "；已透過 OCR 成功抽取文字"
+        elif ocr.get("ocr_status") in {"OCR_REQUIRED", "OCR_FAILED", "OCR_UNAVAILABLE"}:
+            description += f"；{ocr.get('ocr_message', '')}"
+        if ocr.get("warning"):
+            description += f"；{ocr.get('warning')}"
         return {
             "type": "pdf",
             "filename": filename,
             "description": description,
             "content": text,
             "path": file_path,
+            "ocr_used": bool(ocr.get("ocr_used")),
+            "ocr_page_count": int(ocr.get("ocr_page_count", 0) or 0),
+            "ocr_status": ocr.get("ocr_status", "NOT_ATTEMPTED"),
+            "ocr_message": ocr.get("ocr_message", ""),
+            "ocr_warning": ocr.get("warning", ""),
         }
 
     elif ext == ".docx":
@@ -204,6 +231,9 @@ def load_file_content(file_path: Path) -> dict:
             "description": description,
             "content": text,
             "path": file_path,
+            "ocr_used": False,
+            "ocr_page_count": 0,
+            "ocr_status": "NOT_REQUIRED",
         }
 
     elif ext == ".xlsx":
@@ -217,6 +247,9 @@ def load_file_content(file_path: Path) -> dict:
             "description": description,
             "content": text,
             "path": file_path,
+            "ocr_used": False,
+            "ocr_page_count": 0,
+            "ocr_status": "NOT_REQUIRED",
         }
 
     else:
@@ -226,6 +259,9 @@ def load_file_content(file_path: Path) -> dict:
             "description": "不支援的文件格式",
             "content": "",
             "path": file_path,
+            "ocr_used": False,
+            "ocr_page_count": 0,
+            "ocr_status": "UNSUPPORTED_FILE_TYPE",
         }
 
 

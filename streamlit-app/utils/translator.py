@@ -280,9 +280,27 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
             text = page.extract_text() or ""
             if text.strip():
                 pages.append(f"[Page {i+1}]\n{text.strip()}")
-        return "\n\n".join(pages)
+        selectable = "\n\n".join(pages)
+        if selectable.strip():
+            return selectable
+
+        from utils.ocr_engine import extract_text_from_bytes_with_ocr
+        ocr = extract_text_from_bytes_with_ocr(file_bytes, "upload.pdf")
+        if ocr.get("extracted_text"):
+            return ocr["extracted_text"]
+        return ""
     except Exception as e:
         raise RuntimeError(f"PDF extraction failed: {e}") from e
+
+
+def extract_text_from_image(file_bytes: bytes, source_filename: str) -> str:
+    """Extract text from JPG/PNG using OCR."""
+    try:
+        from utils.ocr_engine import extract_text_from_bytes_with_ocr
+        ocr = extract_text_from_bytes_with_ocr(file_bytes, source_filename)
+        return ocr.get("extracted_text", "")
+    except Exception as e:
+        raise RuntimeError(f"Image OCR extraction failed: {e}") from e
 
 
 # ── Output builders ───────────────────────────────────────────────────────────

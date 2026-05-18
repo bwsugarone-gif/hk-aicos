@@ -162,11 +162,25 @@ def _read_pdf(path: Path) -> tuple[list[dict], str]:
             sections.append({"text": text, "page": idx})
 
     if not sections:
-        return [], "OCR_REQUIRED"
+        try:
+            from utils.ocr_engine import extract_text_with_ocr
+        except Exception:
+            from ocr_engine import extract_text_with_ocr
+        ocr = extract_text_with_ocr(path)
+        if ocr.get("extracted_text"):
+            return [{"text": ocr["extracted_text"], "section": "OCR"}], ocr.get("ocr_status", "OCR_SUCCESS")
+        return [], ocr.get("ocr_status", "OCR_REQUIRED")
 
     total_text = "\n".join(section["text"] for section in sections)
     if len(total_text.strip()) < 80 and len(reader.pages) > 0:
-        return sections, "OCR_REQUIRED"
+        try:
+            from utils.ocr_engine import extract_text_with_ocr
+        except Exception:
+            from ocr_engine import extract_text_with_ocr
+        ocr = extract_text_with_ocr(path)
+        if ocr.get("extracted_text"):
+            return [{"text": ocr["extracted_text"], "section": "OCR"}], ocr.get("ocr_status", "OCR_SUCCESS")
+        return sections, ocr.get("ocr_status", "OCR_REQUIRED")
     return sections, ""
 
 
@@ -352,8 +366,13 @@ def build_rag_index() -> dict:
                 doc_chunks.extend(new_chunks)
 
             full_text = "\n".join(doc_text_parts)
-            if status == "OCR_REQUIRED":
-                message = "此文件可能為掃描 PDF，OCR 將於 Phase 3.2 支援。"
+            if status in {"OCR_REQUIRED", "OCR_FAILED", "OCR_UNAVAILABLE"}:
+                if status == "OCR_UNAVAILABLE":
+                    message = "OCR 功能暫未可用，請提供可選取文字的 PDF。"
+                elif status == "OCR_FAILED":
+                    message = "未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。"
+                else:
+                    message = "此文件可能為掃描 PDF，OCR 將於 Phase 3.2 支援。"
                 documents.append(_metadata(path, category, full_text, len(doc_chunks), status=status, error=message))
                 errors.append({"file_name": path.name, "category": category, "status": status, "message": message})
             else:

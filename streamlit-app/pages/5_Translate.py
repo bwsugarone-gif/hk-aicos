@@ -354,7 +354,7 @@ elif mode == "file_translate":
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<h3>📄 文件翻譯</h3>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="info-box">上載 PDF、DOCX 或 XLSX 文件，系統抽取文字後由 Translator Agent 翻譯。</div>',
+        '<div class="info-box">上載 PDF、DOCX、XLSX、JPG 或 PNG 文件，系統抽取文字後由 Translator Agent 翻譯。</div>',
         unsafe_allow_html=True,
     )
 
@@ -362,8 +362,8 @@ elif mode == "file_translate":
     output_fmt = _output_format_selector("file")
 
     uploaded = st.file_uploader(
-        "上載文件（PDF / DOCX / XLSX）",
-        type=["pdf", "docx", "xlsx"],
+        "上載文件（PDF / DOCX / XLSX / JPG / PNG）",
+        type=["pdf", "docx", "xlsx", "jpg", "jpeg", "png"],
         key="file_upload_translate",
     )
 
@@ -384,6 +384,7 @@ elif mode == "file_translate":
                 try:
                     from utils.translator import (
                         extract_text_from_docx,
+                        extract_text_from_image,
                         extract_text_from_xlsx,
                         extract_text_from_pdf,
                         MAX_TOTAL_CHARS,
@@ -395,13 +396,19 @@ elif mode == "file_translate":
                         raw_text = extract_text_from_xlsx(file_bytes)
                     elif ext == ".pdf":
                         raw_text = extract_text_from_pdf(file_bytes)
+                    elif ext in [".jpg", ".jpeg", ".png"]:
+                        raw_text = extract_text_from_image(file_bytes, fname)
                     else:
                         st.error("不支援的文件格式。")
                         st.stop()
 
                     if not raw_text.strip():
-                        st.warning("未能從文件中抽取文字。請確認文件包含可讀文字（非掃描圖片）。")
+                        st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
                         st.stop()
+                    if ext in [".jpg", ".jpeg", ".png"]:
+                        st.success("已透過 OCR 成功抽取文字")
+                    elif ext == ".pdf":
+                        st.info("已完成 PDF 文字抽取；如屬掃描 PDF，系統已嘗試 OCR。")
 
                 except Exception as e:
                     st.error(f"文字抽取失敗：{e}")

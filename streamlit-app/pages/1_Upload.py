@@ -289,14 +289,29 @@ if uploaded_files:
 
         # Preview each file
         for i, (uf, fd) in enumerate(zip(valid_files, all_file_data)):
+            ocr_status = fd.get("ocr_status", "")
+            ocr_message = fd.get("ocr_message", "")
+            ocr_warning = fd.get("ocr_warning", "")
             if fd["type"] == "image":
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     st.image(uf, caption=uf.name, use_container_width=True)
                 with col2:
                     st.success(f"✅ 圖片已載入：{uf.name}")
+                    if ocr_status == "OCR_SUCCESS":
+                        st.success("已透過 OCR 成功抽取文字")
+                    elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
+                        st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
             elif fd["type"] == "pdf":
                 st.success(f"✅ PDF 已載入：{uf.name}")
+                if ocr_status == "OCR_SUCCESS":
+                    st.success("已透過 OCR 成功抽取文字")
+                elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
+                    st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
+                elif ocr_status == "OCR_REQUIRED":
+                    st.info("此文件可能為掃描 PDF，OCR 將於 Phase 3.2 支援。")
+                if ocr_warning:
+                    st.info(ocr_warning)
                 with st.expander(f"預覽：{uf.name}"):
                     preview = fd["content"][:1500] + ("..." if len(fd["content"]) > 1500 else "")
                     st.text(preview)
@@ -726,6 +741,11 @@ if generate_btn:
                     [file_name] if file_name else []
                 )
                 _file_types = [fd.get("type", "unknown") for fd in _all_fd] if _all_fd else []
+                _ocr_used = any(fd.get("ocr_used") for fd in _all_fd)
+                _ocr_page_count = sum(int(fd.get("ocr_page_count", 0) or 0) for fd in _all_fd)
+                _ocr_status = "、".join(
+                    sorted({str(fd.get("ocr_status", "")) for fd in _all_fd if fd.get("ocr_status")})
+                )
 
                 # Save session to JSON memory
                 try:
@@ -743,6 +763,9 @@ if generate_btn:
                             calibration_warning
                             or calibration_result.get("calibration_reason", "")
                         ),
+                        ocr_used=_ocr_used,
+                        ocr_page_count=_ocr_page_count,
+                        ocr_status=_ocr_status,
                         departments=_departments,
                         analysis_result=analysis_result,
                         analysis_type=ANALYSIS_DISPLAY[selected_type][1],
@@ -790,6 +813,9 @@ if generate_btn:
                                 calibration_warning
                                 or calibration_result.get("calibration_reason", "")
                             ),
+                            ocr_used=_ocr_used,
+                            ocr_page_count=_ocr_page_count,
+                            ocr_status=_ocr_status,
                             government_departments=_departments,
                             report_path=report_path,
                             question=question,
@@ -829,6 +855,9 @@ if generate_btn:
                     "session_id": current_session_id,
                     "departments": _departments,
                     "report_path": report_path,
+                    "ocr_used": _ocr_used,
+                    "ocr_page_count": _ocr_page_count,
+                    "ocr_status": _ocr_status,
                 }
 
                 if risk_level != "低風險":
