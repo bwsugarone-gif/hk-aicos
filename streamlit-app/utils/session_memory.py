@@ -136,6 +136,14 @@ def save_session(
     }
 
     sessions = _load_all()
+
+    # Skip Low risk from timeline — don't pollute history with trivial entries
+    if record.get("risk_level") == "低風險" and record.get("calibrated_risk_level") == "低風險":
+        # Still save, but mark as low-risk so timeline views can filter it
+        record["timeline_visible"] = False
+    else:
+        record["timeline_visible"] = True
+
     sessions.append(record)
 
     # Enforce per-project cap: keep latest _MAX_PER_PROJECT per project_ref

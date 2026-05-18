@@ -320,6 +320,13 @@ def build_prompt_from_agents(
 不要提及 backend、prompt、model、API、debug 或系統內部字眼。
 語氣要專業、直接、可交付，重點放在工程事實、風險、責任、影響及下一步行動。
 
+報告長度規定（每個 Agent 章節）：
+- 主要風險：最多 3 項，每項 1–2 句
+- 建議行動：最多 3 項，每項 1 句
+- 跟進事項：最多 2 項，每項 1 句
+- 不要重複其他 Agent 已提及的風險，如有相同風險請略去
+- 不要加入與 Agent 職責無關的內容
+
 已選擇 Agent：
 {selected_names}
 

@@ -902,6 +902,77 @@ if generate_btn:
                     except Exception:
                         pass
 
+                # ── Risk Score UI ─────────────────────────────────────────────
+                _agent_scores = calibration_result.get("agent_scores", {})
+                _detected_issues = calibration_result.get("detected_issues", [])
+                _overall_score = calibration_result.get("overall_risk_score", 0)
+
+                _risk_color = {
+                    "低風險": "#28a745",
+                    "中風險": "#fd7e14",
+                    "高風險": "#dc3545",
+                    "極高風險": "#6f0000",
+                }.get(risk_level, "#6c757d")
+
+                st.markdown(f"""
+<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:10px;
+            padding:1rem 1.2rem;margin:1rem 0;">
+  <div style="font-size:1rem;font-weight:700;color:#1a3a5c;margin-bottom:0.6rem;">
+    📊 風險評分
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:0.8rem;margin-bottom:0.6rem;">
+""", unsafe_allow_html=True)
+
+                for _aid, _as in _agent_scores.items():
+                    from utils.risk_calibrator import AGENT_RISK_PROFILES as _ARP
+                    _aname = _ARP.get(_aid, {}).get("name", _aid)
+                    _alevel = _as.get("risk_level", "中風險")
+                    _ascore = _as.get("raw_score", 0)
+                    _aconf = _as.get("confidence", 0)
+                    _acolor = {
+                        "低風險": "#28a745", "中風險": "#fd7e14",
+                        "高風險": "#dc3545", "極高風險": "#6f0000",
+                    }.get(_alevel, "#6c757d")
+                    st.markdown(
+                        f'<div style="background:white;border:1px solid #dee2e6;'
+                        f'border-radius:6px;padding:0.4rem 0.8rem;font-size:0.85rem;">'
+                        f'<b>{_aname}</b><br/>'
+                        f'<span style="color:{_acolor};font-weight:600;">{_alevel}</span>'
+                        f' &nbsp;分數：{_ascore}'
+                        f' &nbsp;信心：{int(_aconf*100)}%'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(f"""
+  </div>
+  <div style="font-size:1rem;">
+    整體風險：
+    <span style="color:{_risk_color};font-weight:700;font-size:1.1rem;">{risk_level}</span>
+    &nbsp;（加權分數：{_overall_score:.1f}）
+  </div>
+""", unsafe_allow_html=True)
+
+                if _detected_issues:
+                    with st.expander("🔍 偵測到的風險項目"):
+                        for _issue in _detected_issues[:6]:
+                            _icat = _issue.get("category", "")
+                            _iconf = int(_issue.get("confidence", 0) * 100)
+                            _iscore = _issue.get("score", 0)
+                            _ilabel = _issue.get("label", "")
+                            _icolor = {
+                                "critical": "#6f0000", "high": "#dc3545",
+                                "medium": "#fd7e14", "low": "#28a745",
+                            }.get(_icat, "#6c757d")
+                            st.markdown(
+                                f'<span style="color:{_icolor};font-weight:600;">'
+                                f'[{_icat.upper()}]</span> {_ilabel}'
+                                f' — 分數 {_iscore}，信心 {_iconf}%',
+                                unsafe_allow_html=True,
+                            )
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
                 st.session_state["last_analysis"] = {
                     "analysis_type": selected_type,
                     "analysis_display_name": ANALYSIS_DISPLAY[selected_type][1],
@@ -927,6 +998,8 @@ if generate_btn:
                     "ocr_used": _ocr_used,
                     "ocr_page_count": _ocr_page_count,
                     "ocr_status": _ocr_status,
+                    "agent_scores": _agent_scores,
+                    "detected_issues": _detected_issues,
                 }
 
                 if risk_level != "低風險":
