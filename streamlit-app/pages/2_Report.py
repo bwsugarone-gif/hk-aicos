@@ -444,6 +444,67 @@ if _conflict_result and not _conflict_result.get("fallback_used"):
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── 證據可信度 ────────────────────────────────────────────────────────────────
+_evidence_result = data.get("evidence_result", {})
+if _evidence_result:
+    _ev_class    = _evidence_result.get("evidence_class", "")
+    _ev_label    = _evidence_result.get("evidence_label_zh", "")
+    _ev_sections = _evidence_result.get("evidence_sections", {})
+    _ev_replaced = _evidence_result.get("replacements_made", [])
+    _ev_adjusted = _evidence_result.get("risk_was_adjusted", False)
+    _ev_adj_risk = _evidence_result.get("adjusted_risk_level", "")
+
+    _ev_color = {
+        "confirmed":           "#28a745",
+        "uncertain":           "#fd7e14",
+        "missing_evidence":    "#6c757d",
+        "prohibited_inference":"#dc3545",
+    }.get(_ev_class, "#6c757d")
+
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>🔍 證據可信度</h3>', unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="display:inline-block;background:{_ev_color};color:white;'
+        f'border-radius:20px;padding:0.2rem 1rem;font-weight:700;font-size:0.95rem;'
+        f'margin-bottom:0.8rem;">{_ev_label}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if _ev_adjusted and _ev_adj_risk:
+        st.markdown(
+            f'<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;'
+            f'padding:0.5rem 0.9rem;font-size:0.9rem;margin-bottom:0.6rem;">'
+            f'⚠️ 風險級別已根據證據可信度調整為：<strong>{_ev_adj_risk}</strong></div>',
+            unsafe_allow_html=True,
+        )
+
+    _section_labels = {
+        "confirmed":     ("✅ 已確認事項", "#28a745"),
+        "uncertain":     ("❓ 未能確認事項", "#fd7e14"),
+        "suspicion":     ("🔶 合理懷疑", "#e67e00"),
+        "prohibited":    ("🚫 不可推測事項", "#dc3545"),
+        "supplementary": ("📋 建議補充資料", "#6c757d"),
+    }
+    for sec_key, (sec_label, sec_color) in _section_labels.items():
+        items = _ev_sections.get(sec_key, [])
+        if items:
+            st.markdown(
+                f'<div style="font-weight:600;color:{sec_color};margin-top:0.5rem;">'
+                f'{sec_label}</div>',
+                unsafe_allow_html=True,
+            )
+            for item in items[:5]:
+                safe_item = item.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                st.markdown(f"- {safe_item}")
+
+    if _ev_replaced:
+        with st.expander(f"🔧 已自動修正 {len(_ev_replaced)} 處過度推測字眼"):
+            for r in _ev_replaced:
+                st.markdown(f"- {r}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 下載 PDF ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="report-section">', unsafe_allow_html=True)
 st.markdown('<h3>📥 下載報告</h3>', unsafe_allow_html=True)

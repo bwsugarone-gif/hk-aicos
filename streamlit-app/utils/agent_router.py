@@ -352,6 +352,13 @@ Agent instructions：
 {chr(10).join(output_sections)}
 """
 
+    # Inject evidence confidence rules (graceful — no crash if missing)
+    try:
+        from utils.evidence_confidence import get_evidence_prompt_injection
+        base_prompt = base_prompt + "\n" + get_evidence_prompt_injection()
+    except Exception:
+        pass
+
     # Inject personality & output rules from governance layer (graceful — no crash if missing)
     try:
         from utils.agent_governance import enrich_prompt_with_personality

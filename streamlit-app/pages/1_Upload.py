@@ -813,6 +813,19 @@ if generate_btn:
                 except Exception:
                     conflict_result = {"fallback_used": True}
 
+                # ── Evidence Confidence Layer ─────────────────────────────────
+                evidence_result = {}
+                try:
+                    from utils.evidence_confidence import process_analysis_output
+                    evidence_result = process_analysis_output(analysis_result, risk_level)
+                    # Apply filtered text and adjusted risk
+                    analysis_result = evidence_result.get("filtered_text", analysis_result)
+                    _ev_adjusted_risk = evidence_result.get("adjusted_risk_level", risk_level)
+                    if _ev_adjusted_risk != risk_level:
+                        risk_level = _ev_adjusted_risk
+                except Exception as _ev_err:
+                    print(f"[evidence_confidence] WARNING: {_ev_err}", file=sys.stderr)
+
                 # Derive departments for session record
                 _dept_text = "\n".join([selected_type, question, analysis_result])
                 _departments = _department_mapping(_dept_text)
@@ -1058,6 +1071,7 @@ if generate_btn:
                     "calibrated_risk_level": risk_level,
                     "calibrated_risk_score": calibration_result.get("overall_risk_score", 0.0),
                     "highest_risk_agent": calibration_result.get("highest_risk_agent", ""),
+                    "evidence_result": evidence_result,
                     "calibration_reason": (
                         calibration_warning
                         or calibration_result.get("calibration_reason", "")
