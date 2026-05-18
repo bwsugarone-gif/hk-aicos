@@ -512,34 +512,29 @@ def _build_image_cell_content(xlsx_image, col_width: float, cell_text: str,
     """
     Build a list of flowables for a table cell that contains an image.
     Image is shown first; if there is also text, it appears below the image.
-    Returns a list suitable for use inside a KeepInFrame or as a Paragraph list.
+    Returns (flowable_list, draw_height) or (None, 0) on failure.
+    draw_height is the rendered image height in points (for row height calculation).
     """
-    from reportlab.platypus import KeepInFrame
-
     # Leave a small margin inside the cell
-    img_max_w = max(col_width - 4, 10)
-    # Row height will be auto-expanded; cap image height at a reasonable value
-    img_max_h = 80 * mm
+    img_max_w = max(col_width - 6, 10)
+    # Cap image height at a reasonable value per cell
+    img_max_h = 72 * mm
 
     try:
         img_flowable = _build_xlsx_image_flowable(xlsx_image, img_max_w, img_max_h)
     except Exception as e:
         print(f"[translator] WARNING: image flowable failed: {e}", file=sys.stderr)
-        return None  # signal failure
+        return None, 0  # signal failure
+
+    draw_height = img_flowable.drawHeight  # actual rendered height in points
 
     items = [img_flowable]
     if cell_text and cell_text.strip():
         safe = cell_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         items.append(Paragraph(safe[:100], cell_style))
+        draw_height += 14  # approximate text line height
 
-    # Wrap in KeepInFrame so it doesn't overflow the cell horizontally
-    frame = KeepInFrame(
-        maxWidth=col_width,
-        maxHeight=0,   # 0 = unlimited height (row will expand)
-        content=items,
-        mode="shrink",
-    )
-    return frame
+    return items, draw_height
 
 
 def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
@@ -651,6 +646,7 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
         for r_idx, row in enumerate(rows):
             row_cells = []
             row_has_image = False
+            row_img_height = 0  # max image height in this row (points)
 
             for c_idx, cell_val in enumerate(row[:MAX_COLS]):
                 cell_text = str(cell_val) if cell_val is not None else ""
@@ -659,7 +655,7 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
                 if img_key in image_map:
                     # This cell has an image — build combined cell content
                     row_has_image = True
-                    cell_content = _build_image_cell_content(
+                    cell_content, img_h = _build_image_cell_content(
                         image_map[img_key],
                         col_width,
                         cell_text,
@@ -667,7 +663,9 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
                         font_name,
                     )
                     if cell_content is not None:
+                        # ReportLab Table accepts a list of flowables per cell
                         row_cells.append(cell_content)
+                        row_img_height = max(row_img_height, img_h)
                     else:
                         # Image build failed — fall back to text only
                         any_image_warning = True
@@ -684,11 +682,12 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
 
             table_data.append(row_cells)
 
-            # Rows with images get a taller minimum height to show the image
-            if row_has_image:
-                row_heights.append(None)   # None = auto (ReportLab will expand)
+            # Rows with images get an explicit minimum height so the image is visible.
+            # Add 8pt padding (top+bottom) on top of the image height.
+            if row_has_image and row_img_height > 0:
+                row_heights.append(row_img_height + 8)
             else:
-                row_heights.append(None)   # all auto; images drive height via KeepInFrame
+                row_heights.append(None)  # auto height for text-only rows
 
         if not table_data:
             continue
