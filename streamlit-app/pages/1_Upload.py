@@ -51,6 +51,7 @@ from utils.project_manager import (
     get_project_report_path,
     save_session as save_project_session,
 )
+from utils.action_manager import auto_create_action_from_session
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -189,6 +190,7 @@ with st.sidebar:
     st.page_link("pages/3_History.py",   label="🕘 歷史紀錄")
     st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽")
     st.page_link("pages/8_Risk_Center.py", label="⚠️ 工程風險中心")
+    st.page_link("pages/9_Action_Tracker.py", label="✅ 跟進事項中心")
     st.page_link("pages/6_Memory_Manager.py", label="🧠 工程記憶管理")
     st.page_link("pages/5_Translate.py", label="📑 文件翻譯與轉換")
     st.page_link("pages/4_About.py",     label="ℹ️ 關於 Buildway Tech")
@@ -810,6 +812,28 @@ if generate_btn:
                     "departments": _departments,
                     "report_path": report_path,
                 }
+
+                if risk_level != "低風險":
+                    try:
+                        auto_create_action_from_session({
+                            "project_ref": project_ref_clean or "未填寫",
+                            "session_id": current_session_id,
+                            "risk_level": risk_level,
+                            "calibrated_risk_level": risk_level,
+                            "highest_risk_agent": calibration_result.get("highest_risk_agent", ""),
+                            "selected_agents": selected_agent_ids,
+                            "departments": _departments,
+                            "question": question,
+                            "analysis_summary": (analysis_result or "")[:300],
+                            "calibration_reason": (
+                                calibration_warning
+                                or calibration_result.get("calibration_reason", "")
+                            ),
+                        })
+                    except Exception as action_error:
+                        st.session_state["action_tracker_warning"] = (
+                            f"Action item 生成失敗：{type(action_error).__name__}: {action_error}"
+                        )
 
             except ImportError as e:
                 st.error(f"❌ 缺少依賴套件：`{e}`\n\n請確認 requirements.txt 包含 `openai` 及 `anthropic`。")

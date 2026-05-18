@@ -14,6 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from utils.action_manager import get_project_action_summary
 from utils.logo_helper import sidebar_logo
 
 
@@ -124,6 +125,7 @@ with st.sidebar:
     st.page_link("pages/3_History.py", label="🕘 歷史紀錄")
     st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽")
     st.page_link("pages/8_Risk_Center.py", label="⚠️ 工程風險中心")
+    st.page_link("pages/9_Action_Tracker.py", label="✅ 跟進事項中心")
     st.page_link("pages/6_Memory_Manager.py", label="🧠 工程記憶管理")
     st.page_link("pages/5_Translate.py", label="📑 文件翻譯與轉換")
     st.page_link("pages/4_About.py", label="ℹ️ 關於 Buildway Tech")
@@ -175,6 +177,7 @@ def _project_ref(session: dict) -> str:
 
 
 def _project_records(sessions: list) -> list:
+    action_summary = get_project_action_summary()
     grouped = defaultdict(list)
     for session in sessions:
         grouped[_project_ref(session)].append(session)
@@ -205,6 +208,8 @@ def _project_records(sessions: list) -> list:
             "agents": sorted(set(str(a) for a in agents if str(a).strip())),
             "file_count": len([name for name in file_names if str(name).strip()]),
             "pdf_count": pdf_count,
+            "open_action_count": action_summary.get(project_ref, {}).get("open", 0),
+            "high_priority_action_count": action_summary.get(project_ref, {}).get("high", 0),
             "latest_question": str(latest.get("question", "") or ""),
             "latest_summary": str(
                 latest.get("analysis_summary", "")
@@ -292,6 +297,8 @@ for record in filtered_records:
     <span class="metric-pill">最近：{escape(record["latest_time"] or "—")}</span>
     <span class="metric-pill">文件：{record["file_count"]}</span>
     <span class="metric-pill">PDF：{record["pdf_count"]}</span>
+    <span class="metric-pill">未完成 Action：{record["open_action_count"]}</span>
+    <span class="metric-pill">高優先 Action：{record["high_priority_action_count"]}</span>
   </div>
   <div class="small-muted">
     涉及政府部門：{escape(_join(record["departments"]))}<br/>
@@ -320,7 +327,9 @@ st.markdown(
     f"最高風險：**{selected_record['highest_risk']}**　"
     f"Session：**{selected_record['session_count']}**　"
     f"文件：**{selected_record['file_count']}**　"
-    f"PDF：**{selected_record['pdf_count']}**"
+    f"PDF：**{selected_record['pdf_count']}**　"
+    f"未完成 Action：**{selected_record['open_action_count']}**　"
+    f"高優先 Action：**{selected_record['high_priority_action_count']}**"
 )
 
 st.markdown("#### Timeline / Sessions")

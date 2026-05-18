@@ -25,6 +25,7 @@ streamlit-app/uploads/
 streamlit-app/reports/*.pdf
 streamlit-app/projects/*
 !streamlit-app/projects/.gitkeep
+streamlit-app/data/action_items_backup_*.json
 
 # OS
 .DS_Store
