@@ -161,6 +161,7 @@ with st.sidebar:
     st.page_link("pages/1_Upload.py", label="📤 上載分析", icon=None)
     st.page_link("pages/2_Report.py", label="📄 分析報告", icon=None)
     st.page_link("pages/3_History.py", label="🕘 歷史紀錄", icon=None)
+    st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽", icon=None)
     st.page_link("pages/6_Memory_Manager.py", label="🧠 工程記憶管理", icon=None)
     st.page_link("pages/4_About.py", label="ℹ️ 關於 Buildway Tech", icon=None)
     st.markdown("---")
