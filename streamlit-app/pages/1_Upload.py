@@ -55,6 +55,10 @@ from utils.project_manager import (
 )
 from utils.action_manager import auto_create_action_from_session
 from utils.image_understanding import process_image_with_understanding
+from utils.site_context_engine import (
+    analyse_site_context,
+    apply_context_risk_to_level,
+)
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -813,6 +817,27 @@ if generate_btn:
                 except Exception:
                     conflict_result = {"fallback_used": True}
 
+                # ── Site Context Awareness ────────────────────────────────────
+                site_context = {}
+                try:
+                    _ocr_combined = " ".join(
+                        fd.get("extracted_text", "") or ""
+                        for fd in _all_fd
+                    )
+                    site_context = analyse_site_context(
+                        text=file_content,
+                        question=question,
+                        ocr_text=_ocr_combined,
+                    )
+                    # Apply context risk modifier to current risk level
+                    _ctx_modifier = site_context.get("risk_modifier", {}).get("combined_modifier", 1.0)
+                    if _ctx_modifier > 1.0:
+                        risk_level = apply_context_risk_to_level(risk_level, _ctx_modifier)
+                        original_risk_level = risk_level
+                except Exception as _ctx_err:
+                    import sys as _sys
+                    print(f"[site_context] WARNING: {_ctx_err}", file=_sys.stderr)
+
                 # ── Evidence Confidence Layer ─────────────────────────────────
                 evidence_result = {}
                 try:
@@ -1086,6 +1111,7 @@ if generate_btn:
                     "agent_scores": _agent_scores,
                     "detected_issues": _detected_issues,
                     "conflict_result": conflict_result,
+                    "site_context": site_context,
                 }
 
                 if risk_level != "低風險":

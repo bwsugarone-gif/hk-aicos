@@ -444,6 +444,69 @@ if _conflict_result and not _conflict_result.get("fallback_used"):
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── 現場 Context ──────────────────────────────────────────────────────────────
+_site_context = data.get("site_context", {})
+if _site_context and _site_context.get("context_available"):
+    _sc_envs      = _site_context.get("environment_labels_zh", [])
+    _sc_stage     = _site_context.get("stage_label_zh", "不明")
+    _sc_seq       = _site_context.get("sequence_check", {})
+    _sc_mod       = _site_context.get("risk_modifier", {})
+    _sc_constr    = _site_context.get("site_constraints", [])
+    _sc_conf      = _site_context.get("confidence", "low")
+    _sc_seq_v     = _sc_seq.get("verdict", "unknown")
+    _sc_seq_r     = _sc_seq.get("reason", "")
+    _sc_modifier  = _sc_mod.get("combined_modifier", 1.0)
+    _sc_notes     = _sc_mod.get("risk_notes", [])
+
+    _conf_color = {"high": "#28a745", "medium": "#fd7e14", "low": "#6c757d"}.get(_sc_conf, "#6c757d")
+    _conf_label = {"high": "高", "medium": "中", "low": "低"}.get(_sc_conf, "低")
+    _seq_icon   = {"ok": "✅", "warning": "⚠️", "unusual": "🚫", "unknown": "❓"}.get(_sc_seq_v, "❓")
+    _seq_label  = {"ok": "工序合理", "warning": "工序需注意", "unusual": "工序異常", "unknown": "無法判斷"}.get(_sc_seq_v, "無法判斷")
+
+    st.markdown("""
+<div style="background:#f0f4ff;border:1px solid #2d5a8e;border-radius:10px;
+            padding:1rem 1.2rem;margin:1rem 0;">
+  <div style="font-size:1rem;font-weight:700;color:#1a3a5c;margin-bottom:0.7rem;">
+    🏗️ 現場 Context 分析
+  </div>
+""", unsafe_allow_html=True)
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        env_str = "、".join(_sc_envs) if _sc_envs else "不明"
+        st.metric("現場環境", env_str)
+    with col_b:
+        st.metric("工程階段", _sc_stage)
+    with col_c:
+        st.metric("Context 信心", f"{_conf_label}信心", delta=None)
+
+    st.markdown(f"""
+  <div style="margin:0.6rem 0 0.3rem 0;font-size:0.95rem;">
+    工序判斷：<span style="font-weight:700;">{_seq_icon} {_seq_label}</span>
+  </div>
+""", unsafe_allow_html=True)
+    if _sc_seq_r and _sc_seq_v != "ok":
+        st.warning(_sc_seq_r)
+
+    if _sc_modifier > 1.0:
+        st.markdown(
+            f'<div style="font-size:0.9rem;color:#cc6600;margin:0.3rem 0;">'
+            f'⚡ 現場風險加乘：<b>×{_sc_modifier:.1f}</b></div>',
+            unsafe_allow_html=True,
+        )
+
+    if _sc_notes:
+        with st.expander("⚠️ 現場危險因素"):
+            for _n in _sc_notes:
+                st.markdown(f"- {_n}")
+
+    if _sc_constr:
+        with st.expander("🔒 現場限制"):
+            for _c in _sc_constr:
+                st.markdown(f"- {_c}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 證據可信度 ────────────────────────────────────────────────────────────────
 _evidence_result = data.get("evidence_result", {})
 if _evidence_result:
