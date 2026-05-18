@@ -33,7 +33,8 @@ try:
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+        Image as RLImage,
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -448,6 +449,50 @@ def build_translated_txt(translated_text: str, source_filename: str, direction: 
 
 
 # ── Excel → PDF ───────────────────────────────────────────────────────────────
+def _xlsx_image_anchor_row(xlsx_image) -> int:
+    """Return approximate 1-based row for an openpyxl embedded image."""
+    try:
+        marker = getattr(xlsx_image.anchor, "_from", None)
+        if marker is not None:
+            return int(marker.row) + 1
+    except Exception:
+        pass
+    return 0
+
+
+def _xlsx_image_bytes(xlsx_image) -> bytes:
+    """Extract raw bytes from an openpyxl embedded image."""
+    data = xlsx_image._data()
+    if isinstance(data, bytes):
+        return data
+    if hasattr(data, "read"):
+        return data.read()
+    raise ValueError("unsupported openpyxl image data")
+
+
+def _build_xlsx_image_flowable(xlsx_image, max_width: float, max_height: float):
+    """Create a resized ReportLab Image flowable from an openpyxl image."""
+    image_bytes = _xlsx_image_bytes(xlsx_image)
+    image_stream = io.BytesIO(image_bytes)
+
+    try:
+        from PIL import Image as PILImage
+        with PILImage.open(io.BytesIO(image_bytes)) as pil_img:
+            width_px, height_px = pil_img.size
+    except Exception:
+        width_px = float(getattr(xlsx_image, "width", 0) or 0)
+        height_px = float(getattr(xlsx_image, "height", 0) or 0)
+
+    if not width_px or not height_px:
+        width_px, height_px = 320, 180
+
+    # Treat pixels roughly as points, then constrain to PDF content area.
+    scale = min(max_width / width_px, max_height / height_px, 1.0)
+    draw_width = width_px * scale
+    draw_height = height_px * scale
+    return RLImage(image_stream, width=draw_width, height=draw_height)
+
+
 def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
     """
     Convert XLSX to PDF using reportlab.
@@ -494,6 +539,7 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
     )
 
     story = []
+    image_warning = False
     story.append(Paragraph(f"Excel 轉換：{source_filename}", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#c9a84c"), spaceAfter=6))
 
@@ -539,7 +585,34 @@ def excel_to_pdf(file_bytes: bytes, source_filename: str) -> bytes:
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(tbl)
+
+        # Render embedded worksheet images. openpyxl stores these in the
+        # private-but-standard worksheet._images list.
+        sheet_images = list(getattr(sheet, "_images", []) or [])
+        if sheet_images:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("內嵌圖片", sheet_style))
+
+        for img_idx, xlsx_image in enumerate(sorted(sheet_images, key=_xlsx_image_anchor_row), 1):
+            try:
+                anchor_row = _xlsx_image_anchor_row(xlsx_image)
+                row_label = f"約第 {anchor_row} 行附近" if anchor_row else "原工作表位置附近"
+                story.append(Paragraph(f"圖片 {img_idx}（{row_label}）", cell_style))
+                story.append(_build_xlsx_image_flowable(
+                    xlsx_image,
+                    max_width=available_width,
+                    max_height=85 * mm,
+                ))
+                story.append(Spacer(1, 5))
+            except Exception as e:
+                image_warning = True
+                print(f"[translator] WARNING: could not render XLSX image: {e}", file=sys.stderr)
+
         story.append(Spacer(1, 8))
+
+    if image_warning:
+        story.append(Paragraph("部分 Excel 圖片未能轉換，已保留文字內容。", disclaimer_style))
+        story.append(Spacer(1, 4))
 
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc"), spaceAfter=4))
     story.append(Paragraph(
