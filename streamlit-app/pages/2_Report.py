@@ -380,6 +380,70 @@ if professionals:
         )
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── Agent 衝突分析 ────────────────────────────────────────────────────────────
+_conflict_result = data.get("conflict_result", {})
+if _conflict_result and not _conflict_result.get("fallback_used"):
+    _cr_conflicts   = _conflict_result.get("conflict_analysis", [])
+    _cr_override    = _conflict_result.get("override_agent", "PM Agent")
+    _cr_reason      = _conflict_result.get("override_reason", "")
+    _cr_can         = _conflict_result.get("can_continue", "")
+    _cr_merged      = _conflict_result.get("merged_risks", [])
+    _cr_conf        = _conflict_result.get("agent_confidence", {})
+    _cr_action      = _conflict_result.get("final_action_plan", [])
+    _cr_rec         = _conflict_result.get("final_recommendation", "")
+
+    _cc_color = {"Yes": "#28a745", "Limited": "#fd7e14", "No": "#dc3545"}.get(_cr_can, "#6c757d")
+    _cc_label = {"Yes": "✅ 可繼續施工", "Limited": "⚠️ 有限度施工", "No": "🚫 須停工整改"}.get(_cr_can, _cr_can)
+
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>🤝 Agent 衝突分析</h3>', unsafe_allow_html=True)
+
+    st.markdown(f"""
+<div style="background:#fff8f0;border:1px solid #fd7e14;border-radius:8px;
+            padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
+  <div style="margin-bottom:0.4rem;">
+    可否繼續施工：<span style="color:{_cc_color};font-weight:700;">{_cc_label}</span>
+  </div>
+  <div style="font-size:0.9rem;color:#555;margin-bottom:0.3rem;">裁決依據：{_cr_override}</div>
+  <div style="font-size:0.88rem;color:#666;">{_cr_reason}</div>
+</div>
+""", unsafe_allow_html=True)
+
+    if _cr_rec:
+        st.markdown(f"**最終建議：** {_cr_rec}")
+
+    if _cr_conflicts:
+        with st.expander("⚡ 衝突詳情"):
+            for _c in _cr_conflicts:
+                st.markdown(f"- {_c.get('description', '')}")
+
+    if _cr_merged:
+        with st.expander("🔗 跨 Agent 合併風險"):
+            for _mr in _cr_merged[:5]:
+                _agents_str = "、".join(_mr.get("agents", []))
+                _mcat = _mr.get("category", "")
+                _mcolor = {
+                    "critical": "#6f0000", "high": "#dc3545",
+                    "medium": "#fd7e14", "low": "#28a745",
+                }.get(_mcat, "#6c757d")
+                st.markdown(
+                    f'<span style="color:{_mcolor};font-weight:600;">[{_mcat.upper()}]</span> '
+                    f'{_mr.get("label","")} — 涉及：{_agents_str}',
+                    unsafe_allow_html=True,
+                )
+
+    if _cr_conf:
+        with st.expander("📊 Agent 信心分數"):
+            for _aid, _conf in _cr_conf.items():
+                st.markdown(f"- **{_aid}**：{int(_conf * 100)}%")
+
+    if _cr_action:
+        with st.expander("📋 最終行動計劃"):
+            for _ap in _cr_action:
+                st.markdown(f"- {_ap}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 下載 PDF ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="report-section">', unsafe_allow_html=True)
 st.markdown('<h3>📥 下載報告</h3>', unsafe_allow_html=True)

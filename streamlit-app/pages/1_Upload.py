@@ -45,6 +45,7 @@ from utils.logo_helper import sidebar_logo
 from utils.session_memory import save_session as save_legacy_session, get_prior_context, make_session_id
 from utils.report_generator import _department_mapping, _split_agent_sections, generate_pdf_report
 from utils.risk_calibrator import calculate_overall_project_risk
+from utils.conflict_resolver import resolve_agent_conflicts
 from utils.project_manager import (
     append_risk_event,
     build_pm_memory_context,
@@ -797,6 +798,21 @@ if generate_btn:
                     calibration_warning = f"Risk calibration failed: {type(cal_error).__name__}: {cal_error}"
                     risk_level = original_risk_level
 
+                # ── Conflict Resolution ───────────────────────────────────────
+                conflict_result = {}
+                try:
+                    conflict_result = resolve_agent_conflicts(
+                        agent_results=agent_risk_inputs if "agent_risk_inputs" in dir() else {},
+                        selected_agents=selected_agent_ids,
+                        calibration_result=calibration_result,
+                    )
+                    # PM override may further adjust risk level
+                    _pm_risk = conflict_result.get("overall_risk")
+                    if _pm_risk and _pm_risk != risk_level:
+                        risk_level = _pm_risk
+                except Exception:
+                    conflict_result = {"fallback_used": True}
+
                 # Derive departments for session record
                 _dept_text = "\n".join([selected_type, question, analysis_result])
                 _departments = _department_mapping(_dept_text)
@@ -973,6 +989,61 @@ if generate_btn:
 
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # ── Agent Conflict Analysis UI ────────────────────────────────
+                if conflict_result and not conflict_result.get("fallback_used"):
+                    _conflicts = conflict_result.get("conflict_analysis", [])
+                    _override_agent = conflict_result.get("override_agent", "PM Agent")
+                    _override_reason = conflict_result.get("override_reason", "")
+                    _can_continue = conflict_result.get("can_continue", "")
+                    _merged_risks = conflict_result.get("merged_risks", [])
+                    _agent_conf = conflict_result.get("agent_confidence", {})
+                    _final_rec = conflict_result.get("final_recommendation", "")
+                    _action_plan = conflict_result.get("final_action_plan", [])
+
+                    _cc_color = {"Yes": "#28a745", "Limited": "#fd7e14", "No": "#dc3545"}.get(_can_continue, "#6c757d")
+                    _cc_label = {"Yes": "✅ 可繼續施工", "Limited": "⚠️ 有限度施工", "No": "🚫 須停工整改"}.get(_can_continue, _can_continue)
+
+                    st.markdown(f"""
+<div style="background:#fff8f0;border:1px solid #fd7e14;border-radius:10px;
+            padding:1rem 1.2rem;margin:1rem 0;">
+  <div style="font-size:1rem;font-weight:700;color:#1a3a5c;margin-bottom:0.6rem;">
+    🤝 PM Agent 最終整合判斷
+  </div>
+  <div style="margin-bottom:0.5rem;">
+    可否繼續施工：<span style="color:{_cc_color};font-weight:700;">{_cc_label}</span>
+  </div>
+  <div style="font-size:0.9rem;color:#555;margin-bottom:0.4rem;">
+    裁決依據：{_override_agent}
+  </div>
+  <div style="font-size:0.88rem;color:#666;">{_override_reason}</div>
+</div>
+""", unsafe_allow_html=True)
+
+                    if _conflicts:
+                        with st.expander("⚡ Agent 衝突分析"):
+                            for _c in _conflicts:
+                                st.markdown(f"- {_c.get('description', '')}")
+
+                    if _merged_risks:
+                        with st.expander("🔗 跨 Agent 合併風險"):
+                            for _mr in _merged_risks[:5]:
+                                _agents_str = "、".join(_mr.get("agents", []))
+                                _mcat = _mr.get("category", "")
+                                _mcolor = {
+                                    "critical": "#6f0000", "high": "#dc3545",
+                                    "medium": "#fd7e14", "low": "#28a745",
+                                }.get(_mcat, "#6c757d")
+                                st.markdown(
+                                    f'<span style="color:{_mcolor};font-weight:600;">[{_mcat.upper()}]</span> '
+                                    f'{_mr.get("label","")} — 涉及：{_agents_str}',
+                                    unsafe_allow_html=True,
+                                )
+
+                    if _action_plan:
+                        with st.expander("📋 最終行動計劃"):
+                            for _ap in _action_plan:
+                                st.markdown(f"- {_ap}")
+
                 st.session_state["last_analysis"] = {
                     "analysis_type": selected_type,
                     "analysis_display_name": ANALYSIS_DISPLAY[selected_type][1],
@@ -1000,6 +1071,7 @@ if generate_btn:
                     "ocr_status": _ocr_status,
                     "agent_scores": _agent_scores,
                     "detected_issues": _detected_issues,
+                    "conflict_result": conflict_result,
                 }
 
                 if risk_level != "低風險":
