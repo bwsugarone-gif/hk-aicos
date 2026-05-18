@@ -15,6 +15,7 @@ from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report
 from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
+from utils.project_manager import load_project
 
 st.set_page_config(
     page_title="分析報告 | HK-AICOS",
@@ -232,6 +233,46 @@ if selected_agents:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ── Project memory linkage ────────────────────────────────────────────────────
+project_ref = data.get("project_ref", "").strip()
+current_session_id = data.get("session_id", "")
+if project_ref:
+    try:
+        project_memory = load_project(project_ref)
+    except Exception:
+        project_memory = {"sessions": [], "risks": []}
+
+    project_sessions = [
+        s for s in project_memory.get("sessions", [])
+        if s.get("session_id") != current_session_id
+    ]
+    project_risks = project_memory.get("risks", [])
+
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>🧠 Project Memory</h3>', unsafe_allow_html=True)
+    st.markdown(f"**工程歷史：** {len(project_sessions)} 次過往分析")
+    st.markdown(f"**風險總數：** {len(project_risks)} 項")
+    st.markdown(f"**未解決 / 需跟進風險：** {len([r for r in project_risks if r.get('status') != 'resolved'])} 項")
+
+    if project_sessions:
+        st.markdown("**過往摘要：**")
+        for s in project_sessions[:3]:
+            ts = (s.get("time", "") or "")[:16].replace("T", " ")
+            st.markdown(
+                f"- {ts}｜{s.get('analysis_type', '')}｜{s.get('risk_level', '')}："
+                f"{s.get('summary', '')}"
+            )
+
+    if project_risks:
+        st.markdown("**Risk Timeline：**")
+        for risk in project_risks[:5]:
+            ts = (risk.get("date", "") or "")[:10]
+            st.markdown(
+                f"- {ts}｜{risk.get('risk_level', '')}｜"
+                f"{risk.get('status', 'open')}｜{risk.get('risk', '')}"
+            )
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 分析內容 ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="report-section">', unsafe_allow_html=True)
 st.markdown('<h3>📊 工程分析報告</h3>', unsafe_allow_html=True)
@@ -337,17 +378,22 @@ st.markdown('<h3>📥 下載報告</h3>', unsafe_allow_html=True)
 st.markdown("下載 PDF 報告，方便在手機或電腦查閱，或透過 WhatsApp 分享。")
 
 try:
-    pdf_bytes = generate_pdf_report(
-        analysis_type=display_name,
-        question=data.get("question", ""),
-        risk_level=risk_level,
-        analysis_result=analysis_text,
-        filename_hint=data.get("file_name", ""),
-        professionals_required=professionals,
-        project_ref=data.get("project_ref", ""),
-        selected_agents=data.get("selected_agents") or None,
-        session_id=data.get("session_id", ""),
-    )
+    saved_report_value = data.get("report_path", "")
+    saved_report_path = Path(saved_report_value) if saved_report_value else None
+    if saved_report_path and saved_report_path.is_file():
+        pdf_bytes = saved_report_path.read_bytes()
+    else:
+        pdf_bytes = generate_pdf_report(
+            analysis_type=display_name,
+            question=data.get("question", ""),
+            risk_level=risk_level,
+            analysis_result=analysis_text,
+            filename_hint=data.get("file_name", ""),
+            professionals_required=professionals,
+            project_ref=data.get("project_ref", ""),
+            selected_agents=data.get("selected_agents") or None,
+            session_id=data.get("session_id", ""),
+        )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(
         label="📄 下載 PDF 報告",

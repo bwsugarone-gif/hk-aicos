@@ -23,6 +23,8 @@ build/
 # Reports (generated files)
 streamlit-app/uploads/
 streamlit-app/reports/*.pdf
+streamlit-app/projects/*
+!streamlit-app/projects/.gitkeep
 
 # OS
 .DS_Store

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.session_memory import get_all_sessions, get_sessions_by_project
 from utils.logo_helper import sidebar_logo
+from utils.project_manager import load_project
 
 
 # ── RAG reference helper ──────────────────────────────────────────────────────
@@ -210,6 +211,19 @@ _RISK_EMOJI = {
     "高風險": "🔴",
 }
 
+
+def _project_report_path(project_ref: str, session_id: str) -> str:
+    if not project_ref or project_ref == "未填寫" or not session_id:
+        return ""
+    try:
+        memory = load_project(project_ref)
+        for record in memory.get("sessions", []):
+            if record.get("session_id") == session_id:
+                return record.get("report_path", "")
+    except Exception:
+        return ""
+    return ""
+
 # ── Display ───────────────────────────────────────────────────────────────────
 if not sessions:
     st.info("暫未有歷史分析記錄。")
@@ -230,6 +244,11 @@ else:
         summary = s.get("analysis_summary", "")
         sid     = s.get("session_id", "")
         q       = s.get("question", "")
+        report_path = _project_report_path(proj, sid)
+        report_line = (
+            f'<div style="font-size:0.75rem; color:#777; margin-top:0.3rem;">Project report: {report_path}</div>'
+            if report_path else ""
+        )
 
         risk_cls   = _RISK_CLASS.get(risk, "risk-medium")
         risk_emoji = _RISK_EMOJI.get(risk, "🟠")
@@ -280,6 +299,7 @@ else:
     <strong>摘要：</strong>{summary}
   </div>
   {_build_rag_refs_html(agents)}
+  {report_line}
   <div style="font-size:0.75rem; color:#aaa; margin-top:0.5rem;">Session ID: {sid}</div>
 </div>
 """, unsafe_allow_html=True)

@@ -41,8 +41,15 @@ from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_t
 from utils.rag_reader import build_rag_context
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
-from utils.session_memory import save_session, get_prior_context, make_session_id
-from utils.report_generator import _department_mapping
+from utils.session_memory import save_session as save_legacy_session, get_prior_context, make_session_id
+from utils.report_generator import _department_mapping, generate_pdf_report
+from utils.project_manager import (
+    append_risk_event,
+    build_pm_memory_context,
+    create_project,
+    get_project_report_path,
+    save_session as save_project_session,
+)
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -544,10 +551,26 @@ if generate_btn:
         rag_context = build_rag_context(all_regulations)
 
         # ── Project continuity: inject prior session context ──────────────────
-        prior_context = get_prior_context(project_ref.strip()) if project_ref.strip() else ""
+        project_ref_clean = project_ref.strip()
+        if project_ref_clean:
+            try:
+                create_project(project_ref_clean)
+            except Exception:
+                pass
+
+        prior_context = get_prior_context(project_ref_clean) if project_ref_clean else ""
+        pm_memory_context = (
+            build_pm_memory_context(project_ref_clean)
+            if project_ref_clean and "pm" in selected_agent_ids else ""
+        )
+        continuity_blocks = []
+        if pm_memory_context:
+            continuity_blocks.append(pm_memory_context)
+        if prior_context:
+            continuity_blocks.append(f"【項目歷史分析記錄】\n{prior_context}")
         prior_prefix = (
-            f"\n\n【項目歷史分析記錄】\n{prior_context}\n\n【本次分析】\n"
-            if prior_context else ""
+            "\n\n" + "\n\n".join(continuity_blocks) + "\n\n【本次分析】\n"
+            if continuity_blocks else ""
         )
 
         full_prompt = build_prompt_from_agents(
@@ -651,7 +674,7 @@ if generate_btn:
 
                 # Save session to JSON memory
                 try:
-                    save_session(
+                    save_legacy_session(
                         project_ref=project_ref,
                         file_names=_file_names,
                         file_types=_file_types,
@@ -666,6 +689,51 @@ if generate_btn:
                 except Exception:
                     pass  # Never crash the main flow due to session save failure
 
+                report_path = ""
+                if project_ref_clean:
+                    try:
+                        pdf_bytes = generate_pdf_report(
+                            analysis_type=ANALYSIS_DISPLAY[selected_type][1],
+                            question=question,
+                            risk_level=risk_level,
+                            analysis_result=analysis_result,
+                            filename_hint=file_name,
+                            professionals_required=professionals,
+                            project_ref=project_ref_clean,
+                            selected_agents=selected_agent_ids,
+                            session_id=current_session_id,
+                        )
+                        project_report_path = get_project_report_path(project_ref_clean, current_session_id)
+                        project_report_path.write_bytes(pdf_bytes)
+                        report_path = str(project_report_path)
+                    except Exception:
+                        report_path = ""
+
+                    try:
+                        save_project_session(
+                            project_ref=project_ref_clean,
+                            session_id=current_session_id,
+                            selected_agents=selected_agent_ids,
+                            analysis_type=ANALYSIS_DISPLAY[selected_type][1],
+                            analysis_result=analysis_result,
+                            risk_level=risk_level,
+                            government_departments=_departments,
+                            report_path=report_path,
+                            question=question,
+                            file_names=_file_names,
+                            file_types=_file_types,
+                        )
+                        if risk_level != "低風險":
+                            append_risk_event(
+                                project_ref=project_ref_clean,
+                                session_id=current_session_id,
+                                risk=(analysis_result or "")[:160],
+                                risk_level=risk_level,
+                                status="open",
+                            )
+                    except Exception:
+                        pass
+
                 st.session_state["last_analysis"] = {
                     "analysis_type": selected_type,
                     "analysis_display_name": ANALYSIS_DISPLAY[selected_type][1],
@@ -674,10 +742,12 @@ if generate_btn:
                     "file_description": file_description,
                     "file_name": file_name,
                     "professionals": professionals,
-                    "project_ref": project_ref,
+                    "project_ref": project_ref_clean,
                     "risk_level": risk_level,
                     "selected_agents": selected_agent_ids,
                     "session_id": current_session_id,
+                    "departments": _departments,
+                    "report_path": report_path,
                 }
 
             except ImportError as e:
