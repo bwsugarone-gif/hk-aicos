@@ -53,6 +53,7 @@ from utils.project_manager import (
     save_session as save_project_session,
 )
 from utils.action_manager import auto_create_action_from_session
+from utils.image_understanding import process_image_with_understanding
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -287,11 +288,21 @@ if uploaded_files:
                 fd = process_uploaded_file(uf)
                 all_file_data.append(fd)
 
-        # Preview each file
+        # Preview each file + process image understanding
         for i, (uf, fd) in enumerate(zip(valid_files, all_file_data)):
             ocr_status = fd.get("ocr_status", "")
             ocr_message = fd.get("ocr_message", "")
             ocr_warning = fd.get("ocr_warning", "")
+            
+            # Process image understanding for images with OCR
+            if fd["type"] == "image" and fd.get("ocr_used"):
+                try:
+                    understanding_result = process_image_with_understanding(fd)
+                    fd["image_understanding"] = understanding_result
+                except Exception as img_err:
+                    print(f"[Image Understanding] WARNING: {img_err}", file=sys.stderr)
+                    fd["image_understanding"] = None
+            
             if fd["type"] == "image":
                 col1, col2 = st.columns([1, 2])
                 with col1:
@@ -299,7 +310,35 @@ if uploaded_files:
                 with col2:
                     st.success(f"✅ 圖片已載入：{uf.name}")
                     if ocr_status == "OCR_SUCCESS":
-                        st.success("已透過 OCR 成功抽取文字")
+                        st.success("✅ 已透過 OCR 成功抽取文字")
+                        
+                        # Show image understanding results
+                        img_understanding = fd.get("image_understanding")
+                        if img_understanding:
+                            structured = img_understanding.get("structured_info", {})
+                            
+                            # Show safety warnings prominently
+                            if structured.get("has_safety_concern"):
+                                st.warning("⚠️ 此圖片包含安全警告或風險關鍵字")
+                            
+                            # Show extracted info in expander
+                            with st.expander("📋 圖片文字辨識詳情"):
+                                if structured.get("safety_keywords_found"):
+                                    st.markdown(f"**安全關鍵字：** {', '.join(structured['safety_keywords_found'])}")
+                                if structured.get("warnings"):
+                                    st.markdown(f"**警告內容：** {', '.join(structured['warnings'])}")
+                                if structured.get("locations"):
+                                    st.markdown(f"**位置：** {', '.join(structured['locations'])}")
+                                if structured.get("numbers"):
+                                    st.markdown(f"**編號/數字：** {', '.join(structured['numbers'])}")
+                                if structured.get("dates"):
+                                    st.markdown(f"**日期：** {', '.join(structured['dates'])}")
+                                
+                                extracted_text = fd.get("extracted_text", "")
+                                if extracted_text:
+                                    preview = extracted_text[:300] + ("..." if len(extracted_text) > 300 else "")
+                                    st.text_area("辨識到的文字", value=preview, height=150, disabled=True)
+                    
                     elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
                         st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
             elif fd["type"] == "pdf":
@@ -612,6 +651,29 @@ if generate_btn:
             if continuity_blocks else ""
         )
 
+        # ── Collect file metadata early (needed for image context) ───────────
+        _all_fd = st.session_state.get("current_all_file_data", [])
+
+        # ── Image Text Understanding: build IMAGE_TEXT_CONTEXT for prompt ────
+        _image_text_context_parts = []
+        _image_safety_keywords = []
+        _image_warnings = []
+        _image_risk_elevated = False
+        _image_risk_reason = ""
+        for _fd in _all_fd:
+            _img_und = _fd.get("image_understanding")
+            if _img_und and _img_und.get("image_text_context"):
+                _image_text_context_parts.append(_img_und["image_text_context"])
+            if _img_und:
+                _si = _img_und.get("structured_info", {})
+                _image_safety_keywords.extend(_si.get("safety_keywords_found", []))
+                _image_warnings.extend(_si.get("warnings", []))
+                if _img_und.get("should_elevate_risk") and not _image_risk_elevated:
+                    _image_risk_elevated = True
+                    _image_risk_reason = _img_und.get("risk_elevation_reason", "")
+
+        _combined_image_context = "\n\n".join(_image_text_context_parts)
+
         full_prompt = build_prompt_from_agents(
             selected_agent_ids=selected_agent_ids,
             question=question,
@@ -619,6 +681,7 @@ if generate_btn:
                 prior_prefix
                 + file_description
                 + ("\n\n文件內容:\n" + file_content if file_content else "")
+                + ("\n\n" + _combined_image_context if _combined_image_context else "")
             ),
             rag_context=rag_context,
         )
@@ -699,6 +762,10 @@ if generate_btn:
                 # Classify risk, then calibrate with Agent risk weights
                 original_risk_level = classify_risk(selected_type, question, analysis_result)
                 risk_level = original_risk_level
+                # Elevate risk if image OCR detected safety keywords
+                if _image_risk_elevated and risk_level == "低風險":
+                    risk_level = "中風險"
+                    original_risk_level = "中風險"
                 calibration_result = {
                     "overall_risk_level": original_risk_level,
                     "overall_risk_score": 0.0,
@@ -735,7 +802,6 @@ if generate_btn:
                 _departments = _department_mapping(_dept_text)
 
                 # Collect file metadata for session record
-                _all_fd = st.session_state.get("current_all_file_data", [])
                 _valid_fs = st.session_state.get("current_valid_files", [])
                 _file_names = [uf.name for uf in _valid_fs] if _valid_fs else (
                     [file_name] if file_name else []
@@ -766,6 +832,9 @@ if generate_btn:
                         ocr_used=_ocr_used,
                         ocr_page_count=_ocr_page_count,
                         ocr_status=_ocr_status,
+                        image_ocr_context=_combined_image_context,
+                        image_safety_keywords=list(dict.fromkeys(_image_safety_keywords)),
+                        image_warnings=list(dict.fromkeys(_image_warnings)),
                         departments=_departments,
                         analysis_result=analysis_result,
                         analysis_type=ANALYSIS_DISPLAY[selected_type][1],

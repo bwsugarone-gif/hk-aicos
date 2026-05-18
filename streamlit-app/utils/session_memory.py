@@ -93,6 +93,9 @@ def save_session(
     ocr_used: bool = False,
     ocr_page_count: int = 0,
     ocr_status: str = "",
+    image_ocr_context: str = "",
+    image_safety_keywords: list = None,
+    image_warnings: list = None,
 ) -> str:
     """
     Save a new session record.
@@ -123,6 +126,9 @@ def save_session(
         "ocr_used": bool(ocr_used),
         "ocr_page_count": int(ocr_page_count or 0),
         "ocr_status": str(ocr_status or ""),
+        "image_ocr_context": str(image_ocr_context or ""),
+        "image_safety_keywords": list(image_safety_keywords or []),
+        "image_warnings": list(image_warnings or []),
         "departments":      list(departments or []),
         "analysis_summary": summary,
         "analysis_type":    str(analysis_type or ""),
