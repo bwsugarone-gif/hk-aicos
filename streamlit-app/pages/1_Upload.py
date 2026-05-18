@@ -42,7 +42,8 @@ from utils.rag_reader import build_rag_context
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
 from utils.session_memory import save_session as save_legacy_session, get_prior_context, make_session_id
-from utils.report_generator import _department_mapping, generate_pdf_report
+from utils.report_generator import _department_mapping, _split_agent_sections, generate_pdf_report
+from utils.risk_calibrator import calculate_overall_project_risk
 from utils.project_manager import (
     append_risk_event,
     build_pm_memory_context,
@@ -660,8 +661,39 @@ if generate_btn:
                         )
                     analysis_result = message.content[0].text
 
-                # Classify risk and store result
-                risk_level = classify_risk(selected_type, question, analysis_result)
+                # Classify risk, then calibrate with Agent risk weights
+                original_risk_level = classify_risk(selected_type, question, analysis_result)
+                risk_level = original_risk_level
+                calibration_result = {
+                    "overall_risk_level": original_risk_level,
+                    "overall_risk_score": 0.0,
+                    "contributing_agents": [],
+                    "highest_risk_agent": "",
+                    "calibration_reason": "Risk calibration 未執行，使用原始風險。",
+                    "safety_override": False,
+                    "legal_override": False,
+                }
+                calibration_warning = ""
+                try:
+                    agent_sections = _split_agent_sections(analysis_result, selected_agent_ids)
+                    agent_risk_inputs = {}
+                    for aid in selected_agent_ids:
+                        section_text = agent_sections.get(aid, "")
+                        if section_text:
+                            agent_risk_inputs[aid] = {"output": section_text}
+                        else:
+                            agent_risk_inputs[aid] = {
+                                "output": analysis_result,
+                                "risk_level": original_risk_level,
+                            }
+                    calibration_result = calculate_overall_project_risk(
+                        agent_risk_inputs,
+                        selected_agent_ids,
+                    )
+                    risk_level = calibration_result.get("overall_risk_level") or original_risk_level
+                except Exception as cal_error:
+                    calibration_warning = f"Risk calibration failed: {type(cal_error).__name__}: {cal_error}"
+                    risk_level = original_risk_level
 
                 # Derive departments for session record
                 _dept_text = "\n".join([selected_type, question, analysis_result])
@@ -683,6 +715,14 @@ if generate_btn:
                         file_types=_file_types,
                         selected_agents=selected_agent_ids,
                         risk_level=risk_level,
+                        original_risk_level=original_risk_level,
+                        calibrated_risk_level=risk_level,
+                        calibrated_risk_score=calibration_result.get("overall_risk_score", 0.0),
+                        highest_risk_agent=calibration_result.get("highest_risk_agent", ""),
+                        calibration_reason=(
+                            calibration_warning
+                            or calibration_result.get("calibration_reason", "")
+                        ),
                         departments=_departments,
                         analysis_result=analysis_result,
                         analysis_type=ANALYSIS_DISPLAY[selected_type][1],
@@ -705,6 +745,8 @@ if generate_btn:
                             project_ref=project_ref_clean,
                             selected_agents=selected_agent_ids,
                             session_id=current_session_id,
+                            original_risk_level=original_risk_level,
+                            highest_risk_agent=calibration_result.get("highest_risk_agent", ""),
                         )
                         project_report_path = get_project_report_path(project_ref_clean, current_session_id)
                         project_report_path.write_bytes(pdf_bytes)
@@ -720,6 +762,14 @@ if generate_btn:
                             analysis_type=ANALYSIS_DISPLAY[selected_type][1],
                             analysis_result=analysis_result,
                             risk_level=risk_level,
+                            original_risk_level=original_risk_level,
+                            calibrated_risk_level=risk_level,
+                            calibrated_risk_score=calibration_result.get("overall_risk_score", 0.0),
+                            highest_risk_agent=calibration_result.get("highest_risk_agent", ""),
+                            calibration_reason=(
+                                calibration_warning
+                                or calibration_result.get("calibration_reason", "")
+                            ),
                             government_departments=_departments,
                             report_path=report_path,
                             question=question,
@@ -747,6 +797,14 @@ if generate_btn:
                     "professionals": professionals,
                     "project_ref": project_ref_clean,
                     "risk_level": risk_level,
+                    "original_risk_level": original_risk_level,
+                    "calibrated_risk_level": risk_level,
+                    "calibrated_risk_score": calibration_result.get("overall_risk_score", 0.0),
+                    "highest_risk_agent": calibration_result.get("highest_risk_agent", ""),
+                    "calibration_reason": (
+                        calibration_warning
+                        or calibration_result.get("calibration_reason", "")
+                    ),
                     "selected_agents": selected_agent_ids,
                     "session_id": current_session_id,
                     "departments": _departments,

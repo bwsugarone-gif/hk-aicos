@@ -85,6 +85,11 @@ def save_session(
     analysis_type: str,
     question: str,
     session_id: str = "",
+    original_risk_level: str = "",
+    calibrated_risk_level: str = "",
+    calibrated_risk_score: float = 0.0,
+    highest_risk_agent: str = "",
+    calibration_reason: str = "",
 ) -> str:
     """
     Save a new session record.
@@ -107,6 +112,11 @@ def save_session(
         "file_types":       list(file_types or []),
         "selected_agents":  list(selected_agents or []),
         "risk_level":       str(risk_level or "中風險"),
+        "original_risk_level": str(original_risk_level or risk_level or "中風險"),
+        "calibrated_risk_level": str(calibrated_risk_level or risk_level or "中風險"),
+        "calibrated_risk_score": calibrated_risk_score,
+        "highest_risk_agent": str(highest_risk_agent or ""),
+        "calibration_reason": str(calibration_reason or ""),
         "departments":      list(departments or []),
         "analysis_summary": summary,
         "analysis_type":    str(analysis_type or ""),

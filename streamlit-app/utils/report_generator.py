@@ -218,6 +218,8 @@ def _build_html(
     question: str,
     risk_level: str,
     clean_risk: str,
+    original_risk_level: str,
+    highest_risk_agent: str,
     agent_labels: str,
     project_ref: str,
     filename_hint: str,
@@ -402,7 +404,9 @@ p {{
   <tr><td class="label">項目編號</td><td class="value">{_html_escape(_clean_report_text(project_ref) or '待確認')}</td></tr>
   <tr><td class="label">參考文件</td><td class="value">{_html_escape(_clean_report_text(filename_hint) or '待確認')}</td></tr>
   <tr><td class="label">可能涉及部門</td><td class="value">{_html_escape(dept_meta)}</td></tr>
-  <tr><td class="label">風險級別</td><td class="value risk-value">{_html_escape(clean_risk)}</td></tr>
+  <tr><td class="label">最終風險</td><td class="value risk-value">{_html_escape(clean_risk)}</td></tr>
+  <tr><td class="label">原始風險</td><td class="value">{_html_escape(original_risk_level or clean_risk)}</td></tr>
+  <tr><td class="label">主要影響 Agent</td><td class="value">{_html_escape(highest_risk_agent) or '待確認'}</td></tr>
 </table>
 
 <div class="risk-banner">
@@ -543,6 +547,8 @@ def generate_pdf_report(
     project_ref: str = "",
     selected_agents: list = None,
     session_id: str = "",
+    original_risk_level: str = "",
+    highest_risk_agent: str = "",
 ) -> bytes:
     st         = _rl_styles()
     now        = datetime.now()
@@ -593,6 +599,8 @@ def generate_pdf_report(
         report_id=report_id, now=now,
         analysis_type=analysis_type or "", question=question or "",
         risk_level=risk_level or "", clean_risk=clean_risk,
+        original_risk_level=_normalise_risk(original_risk_level or clean_risk),
+        highest_risk_agent=highest_risk_agent or "",
         agent_labels=agent_labels, project_ref=project_ref or "",
         filename_hint=filename_hint or "", departments=departments,
         agent_sections_html=agent_sections_html, dept_html=dept_html,
@@ -653,7 +661,9 @@ def generate_pdf_report(
         ("項目編號",    _clean_report_text(project_ref) or "待確認"),
         ("參考文件",    _clean_report_text(filename_hint) or "待確認"),
         ("可能涉及部門", dept_meta_value),
-        ("風險級別",    clean_risk),
+        ("最終風險",    clean_risk),
+        ("原始風險",    _normalise_risk(original_risk_level or clean_risk)),
+        ("主要影響 Agent", _clean_report_text(highest_risk_agent) or "待確認"),
     ]
     meta_table = Table(
         [[_rl_p(lbl, st["meta_label"]), _rl_p(val, st["meta_value"])] for lbl, val in meta_rows],

@@ -165,6 +165,11 @@ def save_session(
     file_names: list = None,
     file_types: list = None,
     time: str = "",
+    original_risk_level: str = "",
+    calibrated_risk_level: str = "",
+    calibrated_risk_score: float = 0.0,
+    highest_risk_agent: str = "",
+    calibration_reason: str = "",
 ) -> dict:
     """Save one project session JSON and update PM memory summaries."""
     if not str(project_ref or "").strip():
@@ -183,6 +188,11 @@ def save_session(
         "analysis_type": str(analysis_type or ""),
         "summary": summary,
         "risk_level": str(risk_level or "中風險"),
+        "original_risk_level": str(original_risk_level or risk_level or "中風險"),
+        "calibrated_risk_level": str(calibrated_risk_level or risk_level or "中風險"),
+        "calibrated_risk_score": calibrated_risk_score,
+        "highest_risk_agent": str(highest_risk_agent or ""),
+        "calibration_reason": str(calibration_reason or ""),
         "government_departments": list(government_departments or []),
         "report_path": str(report_path or ""),
         "question": str(question or "")[:200],
@@ -283,4 +293,3 @@ def build_pm_memory_context(project_ref: str) -> str:
             )
 
     return "\n".join(lines)
-

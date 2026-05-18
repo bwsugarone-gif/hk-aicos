@@ -199,7 +199,19 @@ def _risk_records(sessions: list) -> list:
             "project_ref": str(session.get("project_ref", "未填寫") or "未填寫"),
             "session_id": str(session.get("session_id", "") or ""),
             "upload_time": _time_value(session),
-            "risk_level": _normalise_risk(session.get("risk_level", "中風險")),
+            "risk_level": _normalise_risk(
+                session.get("calibrated_risk_level")
+                or session.get("risk_level", "中風險")
+            ),
+            "original_risk_level": _normalise_risk(
+                session.get("original_risk_level")
+                or session.get("risk_level", "中風險")
+            ),
+            "calibrated_risk_level": _normalise_risk(
+                session.get("calibrated_risk_level")
+                or session.get("risk_level", "中風險")
+            ),
+            "highest_risk_agent": str(session.get("highest_risk_agent", "") or ""),
             "selected_agents": list(session.get("selected_agents", []) or []),
             "departments": list(departments or []),
             "question": str(session.get("question", "") or ""),
@@ -311,6 +323,8 @@ for idx, record in enumerate(filtered):
 <div class="risk-card {card_cls}">
   <div class="risk-title">{escape(record["project_ref"])}</div>
   <span class="pill {risk_cls}">{escape(record["risk_level"])}</span>
+  <span class="pill">原始：{escape(record["original_risk_level"])}</span>
+  <span class="pill">校準：{escape(record["calibrated_risk_level"])}</span>
   <span class="pill">{escape(record["upload_time"] or "—")}</span>
   <span class="pill">Session：{escape(record["session_id"] or "—")}</span>
   <div class="small-muted" style="margin-top:0.5rem;">
@@ -338,6 +352,9 @@ st.markdown(
   <div class="risk-title">工程編號：{escape(selected["project_ref"])}</div>
   <div class="small-muted">
     分析時間：{escape(selected["upload_time"] or "—")}<br/>
+    原始風險：{escape(selected["original_risk_level"])}<br/>
+    校準風險：{escape(selected["calibrated_risk_level"])}<br/>
+    主要影響 Agent：{escape(selected["highest_risk_agent"] or "—")}<br/>
     相關文件：{escape(_join(selected["file_names"]))}<br/>
     問題：{escape(selected["question"] or "—")}<br/>
     分析摘要：{escape(selected["analysis_summary"] or "—")}<br/>
@@ -355,4 +372,3 @@ st.markdown("""
     Buildway Tech (HK) Limited | HK-AICOS Phase 3.1C
 </div>
 """, unsafe_allow_html=True)
-

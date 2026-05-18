@@ -218,6 +218,10 @@ with col1:
 with col2:
     st.markdown(f"**上載文件：** {data.get('file_name', '無') or '無'}")
     st.markdown(f"**風險級別：** {risk_emoji} {risk_level}")
+    if data.get("original_risk_level") and data.get("original_risk_level") != risk_level:
+        st.markdown(f"**原始風險：** {data.get('original_risk_level')}")
+    if data.get("highest_risk_agent"):
+        st.markdown(f"**主要影響 Agent：** {data.get('highest_risk_agent')}")
 
 st.markdown(f"**問題：** {data.get('question', '')}")
 
@@ -396,6 +400,8 @@ try:
             project_ref=data.get("project_ref", ""),
             selected_agents=data.get("selected_agents") or None,
             session_id=data.get("session_id", ""),
+            original_risk_level=data.get("original_risk_level", risk_level),
+            highest_risk_agent=data.get("highest_risk_agent", ""),
         )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(
