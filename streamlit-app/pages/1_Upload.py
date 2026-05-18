@@ -39,6 +39,7 @@ from utils.smart_agent_router import (
 from utils.risk_classifier import classify_risk, get_risk_info
 from utils.file_loader import process_uploaded_file, is_allowed_file, get_file_type_label
 from utils.rag_reader import build_rag_context
+from utils.rag_manager import get_relevant_context_for_agents
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
 from utils.session_memory import save_session as save_legacy_session, get_prior_context, make_session_id
@@ -555,6 +556,23 @@ if generate_btn:
                     if reg not in all_regulations:
                         all_regulations.append(reg)
         rag_context = build_rag_context(all_regulations)
+        try:
+            rag_lite_context = get_relevant_context_for_agents(
+                selected_agent_ids,
+                question,
+                ANALYSIS_DISPLAY[selected_type][1],
+                top_k=5,
+            )
+            if rag_lite_context:
+                rag_context = (
+                    rag_context
+                    + "\n\n## RAG Lite Relevant Context\n"
+                    + rag_lite_context
+                    if rag_context else
+                    "## RAG Lite Relevant Context\n" + rag_lite_context
+                )
+        except Exception as rag_error:
+            print(f"[RAG Lite] WARNING: context injection failed: {rag_error}", file=sys.stderr)
 
         # ── Project continuity: inject prior session context ──────────────────
         project_ref_clean = project_ref.strip()
