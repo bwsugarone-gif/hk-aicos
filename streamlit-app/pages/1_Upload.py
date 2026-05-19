@@ -712,6 +712,48 @@ if generate_btn:
         professionals = get_required_professionals(selected_type, question, file_description)
         provider, api_key = _get_api_key()
 
+        # ── Evidence Validation Gate ──────────────────────────────────────────
+        # Hard stop: at least one evidence source must exist before AI analysis.
+        _gate_has_file = bool(_all_fd)
+        _gate_has_ocr = any(
+            (fd.get("extracted_text") or "").strip()
+            for fd in _all_fd
+        )
+        _gate_has_image = any(fd.get("type") == "image" for fd in _all_fd)
+        _gate_has_prompt = len((question or "").strip()) > 15
+        _gate_has_project = bool(project_ref_clean and load_project(project_ref_clean).get("sessions"))
+
+        _evidence_sufficient = (
+            _gate_has_file
+            or _gate_has_ocr
+            or _gate_has_image
+            or _gate_has_prompt
+            or _gate_has_project
+        )
+
+        if not _evidence_sufficient:
+            st.markdown("""
+<div style="background:#fff3cd;border:2px solid #ffc107;border-radius:12px;
+            padding:1.5rem 2rem;margin:1.5rem 0;text-align:center;">
+  <div style="font-size:1.5rem;margin-bottom:0.5rem;">⚠️</div>
+  <div style="font-size:1.1rem;font-weight:700;color:#856404;margin-bottom:0.8rem;">
+    資料不足，無法進行分析
+  </div>
+  <div style="font-size:0.95rem;color:#856404;margin-bottom:1rem;">
+    請上載以下其中一項資料，才可啟動 AI 分析：
+  </div>
+  <div style="text-align:left;display:inline-block;font-size:0.93rem;color:#555;">
+    📷 現場相片<br/>
+    📄 工程文件（PDF / Excel / Word）<br/>
+    💬 WhatsApp 截圖或記錄<br/>
+    ✏️ 補充描述（多於 15 字）<br/>
+    🗂️ 已有工程記憶（Project Ref）
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            st.stop()
+        # ── End Evidence Validation Gate ──────────────────────────────────────
+
         # Generate a session_id now so it can be stored in last_analysis for PDF
         current_session_id = make_session_id()
 
