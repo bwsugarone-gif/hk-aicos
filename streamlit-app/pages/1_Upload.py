@@ -70,6 +70,10 @@ from utils.site_instruction_engine import (
     create_action_items_from_instructions,
     write_instruction_to_memory,
 )
+from utils.repeated_issue_detector import (
+    detect_repeated_issues,
+    format_repeated_issues_for_report,
+)
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -970,6 +974,25 @@ if generate_btn:
                 except Exception as _delay_err:
                     print(f"[delay_concern] WARNING: {_delay_err}", file=sys.stderr)
 
+                # ── Repeated Issue Detection ──────────────────────────────────
+                repeated_issues_detected = []
+                try:
+                    if project_ref_clean:
+                        _combined_for_repeat = "\n".join([
+                            question or "",
+                            analysis_result or "",
+                            file_content or "",
+                        ])
+                        repeated_issues_detected = detect_repeated_issues(
+                            project_ref=project_ref_clean,
+                            current_text=_combined_for_repeat,
+                            current_session_id=current_session_id,
+                            analysis_type=ANALYSIS_DISPLAY[selected_type][1],
+                        )
+                except Exception as _ri_err:
+                    import sys as _sys
+                    print(f"[repeated_issue_detector] WARNING: {_ri_err}", file=_sys.stderr)
+
                 # ── Phase 3.3D: Resource & Workforce Logic ────────────────────
                 resource_workforce_result = {}
                 try:
@@ -1274,6 +1297,7 @@ if generate_btn:
                     "progress_result": progress_result,
                     "delay_concern_result": delay_concern_result,
                     "resource_workforce_result": resource_workforce_result,
+                    "repeated_issues_detected": repeated_issues_detected,
                 }
 
                 # ── Phase 3.3E: Site Instruction & Follow-up Workflow ─────────

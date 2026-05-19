@@ -11,6 +11,14 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+# Import synonym-based keyword extractor for dedup (lazy to avoid circular imports)
+def _extract_risk_groups(text: str) -> set:
+    try:
+        from utils.repeated_issue_detector import extract_risk_groups
+        return extract_risk_groups(text)
+    except Exception:
+        return set()
+
 
 _BASE_DIR = Path(__file__).parent.parent
 _DATA_DIR = _BASE_DIR / "data"
@@ -133,16 +141,71 @@ def build_action_from_session(session: dict) -> dict:
     }
 
 
+def find_similar_action(
+    project_ref: str,
+    title_text: str,
+    items: list,
+) -> dict | None:
+    """
+    Return the first open action item for the same project_ref that shares
+    at least one synonym risk group with title_text. Returns None if no match.
+    """
+    if not project_ref or not title_text:
+        return None
+    current_groups = _extract_risk_groups(title_text)
+    if not current_groups:
+        return None
+    for item in items:
+        if item.get("project_ref") != project_ref:
+            continue
+        if item.get("status") not in OPEN_STATUSES:
+            continue
+        existing_groups = _extract_risk_groups(
+            (item.get("action_title") or "") + " " + (item.get("action_detail") or "")
+        )
+        if current_groups & existing_groups:
+            return item
+    return None
+
+
 def auto_create_action_from_session(session: dict) -> dict:
-    """Create one action for medium/high risk sessions. Low risk returns {}."""
+    """
+    Create one action for medium/high risk sessions.
+    If a similar open action already exists for the same project_ref,
+    update its repeat_count and last_seen instead of creating a duplicate.
+    Low risk returns {}.
+    """
     risk_level = _normalise_risk(
         session.get("calibrated_risk_level")
         or session.get("risk_level", "中風險")
     )
     if risk_level == "低風險":
         return {}
+
     action = build_action_from_session(session)
     items = load_action_items()
+
+    # Dedup check: find existing similar open action for same project
+    project_ref = str(session.get("project_ref", "") or "")
+    title_text = action.get("action_title", "") + " " + action.get("action_detail", "")
+    existing = find_similar_action(project_ref, title_text, items)
+
+    if existing:
+        # Update existing action instead of creating duplicate
+        existing["repeat_count"] = int(existing.get("repeat_count") or 1) + 1
+        existing["last_seen"] = _now()
+        existing["repeated_follow_up"] = True
+        # Escalate priority if risk is higher
+        _priority_order = {"低": 0, "中": 1, "高": 2}
+        if _priority_order.get(action.get("priority", "中"), 1) > _priority_order.get(existing.get("priority", "中"), 1):
+            existing["priority"] = action["priority"]
+            existing["risk_level"] = action["risk_level"]
+        save_action_items(items)
+        return existing
+
+    # No duplicate found — create new action
+    action["repeat_count"] = 1
+    action["repeated_follow_up"] = False
     items.append(action)
     save_action_items(items)
     return action

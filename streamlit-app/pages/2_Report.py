@@ -17,6 +17,7 @@ from utils.site_logic_engine import format_site_logic_for_report
 from utils.progress_tracker import format_progress_for_report
 from utils.delay_concern_engine import format_delay_concern_for_report
 from utils.resource_workforce_engine import format_resource_workforce_for_report
+from utils.repeated_issue_detector import format_repeated_issues_for_report
 from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.project_manager import load_project
@@ -695,10 +696,10 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
         unsafe_allow_html=True,
     )
 
-    # Workforce issues
+    # Workforce issues — only show sub-section if there are actual issues
     _wf_issues = _resource_workforce_result.get("workforce_issues", []) or []
-    st.markdown('<h3>人手狀況</h3>', unsafe_allow_html=True)
     if _wf_issues:
+        st.markdown('<h3>人手狀況</h3>', unsafe_allow_html=True)
         for _item in _wf_issues[:5]:
             _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
             _ev_str = "、".join(_item.get("evidence", []))
@@ -711,13 +712,11 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
                 + '</div>',
                 unsafe_allow_html=True,
             )
-    else:
-        st.markdown('<div class="phase33-box">未偵測到明確人手問題。</div>', unsafe_allow_html=True)
 
-    # Trade coordination
+    # Trade coordination — only show if conflicts found
     _tc_issues = _resource_workforce_result.get("trade_conflicts", []) or []
-    st.markdown('<h3>工種協調</h3>', unsafe_allow_html=True)
     if _tc_issues:
+        st.markdown('<h3>工種協調</h3>', unsafe_allow_html=True)
         for _item in _tc_issues[:5]:
             _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
             _ev_str = "、".join(_item.get("evidence", []))
@@ -730,13 +729,11 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
                 + '</div>',
                 unsafe_allow_html=True,
             )
-    else:
-        st.markdown('<div class="phase33-box">未偵測到明確工種衝突。</div>', unsafe_allow_html=True)
 
-    # Material issues
+    # Material issues — only show if issues found
     _mat_issues = _resource_workforce_result.get("material_issues", []) or []
-    st.markdown('<h3>材料狀況</h3>', unsafe_allow_html=True)
     if _mat_issues:
+        st.markdown('<h3>材料狀況</h3>', unsafe_allow_html=True)
         for _item in _mat_issues[:5]:
             _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
             _ev_str = "、".join(_item.get("evidence", []))
@@ -749,13 +746,11 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
                 + '</div>',
                 unsafe_allow_html=True,
             )
-    else:
-        st.markdown('<div class="phase33-box">未偵測到明確材料問題。</div>', unsafe_allow_html=True)
 
-    # Plant / equipment issues
+    # Plant / equipment issues — only show if issues found
     _plant_issues = _resource_workforce_result.get("plant_issues", []) or []
-    st.markdown('<h3>機械 / 設備</h3>', unsafe_allow_html=True)
     if _plant_issues:
+        st.markdown('<h3>機械 / 設備</h3>', unsafe_allow_html=True)
         for _item in _plant_issues[:5]:
             _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
             _ev_str = "、".join(_item.get("evidence", []))
@@ -768,8 +763,6 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
                 + '</div>',
                 unsafe_allow_html=True,
             )
-    else:
-        st.markdown('<div class="phase33-box">未偵測到明確機械設備問題。</div>', unsafe_allow_html=True)
 
     # Action items
     _rw_actions = _resource_workforce_result.get("action_items", []) or []
@@ -796,6 +789,39 @@ if _resource_workforce_result and _resource_workforce_result.get("has_evidence")
             unsafe_allow_html=True,
         )
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Repeated Issue Detection ──────────────────────────────────────────────────
+_repeated_issues_detected = data.get("repeated_issues_detected", []) or []
+if _repeated_issues_detected:
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>🔁 重覆風險偵測</h3>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="background:#fff3cd;border-left:4px solid #ffc107;border-radius:6px;'
+        'padding:0.6rem 1rem;margin-bottom:0.8rem;font-size:0.93rem;">'
+        '⚠️ 以下風險在同一工程中重覆出現，請優先跟進。'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    for _ri in _repeated_issues_detected:
+        _ri_kws = "、".join(_ri.get("group_keywords", [])[:3])
+        _ri_count = _ri.get("repeat_count", 2)
+        _ri_first = _ri.get("first_seen", "")
+        _ri_last = _ri.get("last_seen", "")
+        _date_str = ""
+        if _ri_first:
+            _date_str = f"首次：{_ri_first}"
+        if _ri_last and _ri_last != _ri_first:
+            _date_str += f"　最近：{_ri_last}"
+        st.markdown(
+            f'<div style="background:#fde8eb;border-left:4px solid #dc3545;'
+            f'border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.5rem;">'
+            f'<span style="color:#dc3545;font-weight:700;">重覆風險（第 {_ri_count} 次）</span>　'
+            f'<strong>{highlight_report_keywords_html(_ri_kws)}</strong>'
+            + (f'<br/><span style="font-size:0.83rem;color:#888;">{_date_str}</span>' if _date_str else "")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ── 證據可信度 ────────────────────────────────────────────────────────────────
