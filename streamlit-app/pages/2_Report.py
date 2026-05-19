@@ -16,6 +16,7 @@ from utils.report_generator import generate_pdf_report, highlight_report_keyword
 from utils.site_logic_engine import format_site_logic_for_report
 from utils.progress_tracker import format_progress_for_report
 from utils.delay_concern_engine import format_delay_concern_for_report
+from utils.resource_workforce_engine import format_resource_workforce_for_report
 from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.project_manager import load_project
@@ -612,6 +613,130 @@ if _site_logic_result or _progress_result or _delay_concern_result:
         ]).strip()
         st.markdown(
             f'<div class="phase33-box">{highlight_report_keywords_html(_pm_text).replace(chr(10), "<br/>")}</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Phase 3.3D: Resource & Workforce Analysis ─────────────────────────────────
+_resource_workforce_result = data.get("resource_workforce_result", {})
+if _resource_workforce_result and _resource_workforce_result.get("has_evidence"):
+    _rw_impact = _resource_workforce_result.get("resource_impact_level", "無明顯影響")
+    _rw_impact_color = {
+        "嚴重影響": "#dc3545",
+        "中度影響": "#fd7e14",
+        "輕微影響": "#ffc107",
+        "無明顯影響": "#28a745",
+    }.get(_rw_impact, "#6c757d")
+
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>👷 資源與人手協調分析</h3>', unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="display:inline-block;background:{_rw_impact_color};color:white;'
+        f'border-radius:20px;padding:0.2rem 1rem;font-weight:700;font-size:0.95rem;'
+        f'margin-bottom:0.8rem;">對進度影響：{_rw_impact}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Workforce issues
+    _wf_issues = _resource_workforce_result.get("workforce_issues", []) or []
+    st.markdown('<h3>人手狀況</h3>', unsafe_allow_html=True)
+    if _wf_issues:
+        for _item in _wf_issues[:5]:
+            _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
+            _ev_str = "、".join(_item.get("evidence", []))
+            st.markdown(
+                f'<div class="phase33-box">'
+                f'<span style="color:{_pri_color};font-weight:700;">[{_item.get("priority")}]</span> '
+                f'<strong>{highlight_report_keywords_html(_item.get("title",""))}</strong><br/>'
+                f'{highlight_report_keywords_html(_item.get("finding",""))}'
+                + (f'<br/><span style="font-size:0.85rem;color:#666;">Evidence: {_ev_str}</span>' if _ev_str else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown('<div class="phase33-box">未偵測到明確人手問題。</div>', unsafe_allow_html=True)
+
+    # Trade coordination
+    _tc_issues = _resource_workforce_result.get("trade_conflicts", []) or []
+    st.markdown('<h3>工種協調</h3>', unsafe_allow_html=True)
+    if _tc_issues:
+        for _item in _tc_issues[:5]:
+            _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
+            _ev_str = "、".join(_item.get("evidence", []))
+            st.markdown(
+                f'<div class="phase33-box">'
+                f'<span style="color:{_pri_color};font-weight:700;">[{_item.get("priority")}]</span> '
+                f'<strong>{highlight_report_keywords_html(_item.get("title",""))}</strong><br/>'
+                f'{highlight_report_keywords_html(_item.get("finding",""))}'
+                + (f'<br/><span style="font-size:0.85rem;color:#666;">Evidence: {_ev_str}</span>' if _ev_str else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown('<div class="phase33-box">未偵測到明確工種衝突。</div>', unsafe_allow_html=True)
+
+    # Material issues
+    _mat_issues = _resource_workforce_result.get("material_issues", []) or []
+    st.markdown('<h3>材料狀況</h3>', unsafe_allow_html=True)
+    if _mat_issues:
+        for _item in _mat_issues[:5]:
+            _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
+            _ev_str = "、".join(_item.get("evidence", []))
+            st.markdown(
+                f'<div class="phase33-box">'
+                f'<span style="color:{_pri_color};font-weight:700;">[{_item.get("priority")}]</span> '
+                f'<strong>{highlight_report_keywords_html(_item.get("title",""))}</strong><br/>'
+                f'{highlight_report_keywords_html(_item.get("finding",""))}'
+                + (f'<br/><span style="font-size:0.85rem;color:#666;">Evidence: {_ev_str}</span>' if _ev_str else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown('<div class="phase33-box">未偵測到明確材料問題。</div>', unsafe_allow_html=True)
+
+    # Plant / equipment issues
+    _plant_issues = _resource_workforce_result.get("plant_issues", []) or []
+    st.markdown('<h3>機械 / 設備</h3>', unsafe_allow_html=True)
+    if _plant_issues:
+        for _item in _plant_issues[:5]:
+            _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_item.get("priority", "中"), "#6c757d")
+            _ev_str = "、".join(_item.get("evidence", []))
+            st.markdown(
+                f'<div class="phase33-box">'
+                f'<span style="color:{_pri_color};font-weight:700;">[{_item.get("priority")}]</span> '
+                f'<strong>{highlight_report_keywords_html(_item.get("title",""))}</strong><br/>'
+                f'{highlight_report_keywords_html(_item.get("finding",""))}'
+                + (f'<br/><span style="font-size:0.85rem;color:#666;">Evidence: {_ev_str}</span>' if _ev_str else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown('<div class="phase33-box">未偵測到明確機械設備問題。</div>', unsafe_allow_html=True)
+
+    # Action items
+    _rw_actions = _resource_workforce_result.get("action_items", []) or []
+    if _rw_actions:
+        st.markdown('<h3>建議跟進</h3>', unsafe_allow_html=True)
+        for _act in _rw_actions[:6]:
+            _act_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_act.get("priority", "中"), "#6c757d")
+            st.markdown(
+                f'<div style="background:#fff8f0;border-left:4px solid {_act_color};'
+                f'border-radius:6px;padding:0.6rem 0.9rem;margin-bottom:0.4rem;font-size:0.93rem;">'
+                f'<span style="color:{_act_color};font-weight:700;">[{_act.get("priority")}]</span> '
+                f'{highlight_report_keywords_html(_act.get("title",""))}<br/>'
+                f'<span style="font-size:0.87rem;color:#555;">{_act.get("detail","")}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # PM summary
+    _rw_pm = _resource_workforce_result.get("pm_summary", "")
+    if _rw_pm:
+        st.markdown('<h3>PM 資源協調總結</h3>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="phase33-box">{highlight_report_keywords_html(_rw_pm).replace(chr(10), "<br/>")}</div>',
             unsafe_allow_html=True,
         )
 

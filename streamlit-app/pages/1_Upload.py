@@ -64,6 +64,7 @@ from utils.site_context_engine import (
 from utils.site_logic_engine import analyse_site_logic, format_site_logic_for_report
 from utils.progress_tracker import analyse_progress, format_progress_for_report
 from utils.delay_concern_engine import analyse_delay_concern, format_delay_concern_for_report
+from utils.resource_workforce_engine import analyse_resource_workforce, format_resource_workforce_for_report
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -929,6 +930,18 @@ if generate_btn:
                 except Exception as _delay_err:
                     print(f"[delay_concern] WARNING: {_delay_err}", file=sys.stderr)
 
+                # ── Phase 3.3D: Resource & Workforce Logic ────────────────────
+                resource_workforce_result = {}
+                try:
+                    resource_workforce_result = analyse_resource_workforce(
+                        text="\n".join([file_content or "", analysis_result or ""]),
+                        question=question,
+                        ocr_text=_ocr_combined_for_logic if "_ocr_combined_for_logic" in locals() else "",
+                        site_context=site_context,
+                    )
+                except Exception as _rw_err:
+                    print(f"[resource_workforce] WARNING: {_rw_err}", file=sys.stderr)
+
                 if site_logic_result or progress_result or delay_concern_result:
                     pm_phase_33_block = "\n\nPM 工程狀態總結\n"
                     if site_logic_result:
@@ -937,6 +950,8 @@ if generate_btn:
                         pm_phase_33_block += format_progress_for_report(progress_result) + "\n"
                     if delay_concern_result:
                         pm_phase_33_block += format_delay_concern_for_report(delay_concern_result) + "\n"
+                    if resource_workforce_result and resource_workforce_result.get("has_evidence"):
+                        pm_phase_33_block += format_resource_workforce_for_report(resource_workforce_result) + "\n"
                     analysis_result = (analysis_result or "") + pm_phase_33_block
 
                 # Derive departments for session record
@@ -1218,6 +1233,7 @@ if generate_btn:
                     "site_logic_result": site_logic_result,
                     "progress_result": progress_result,
                     "delay_concern_result": delay_concern_result,
+                    "resource_workforce_result": resource_workforce_result,
                 }
 
                 if risk_level != "低風險":
