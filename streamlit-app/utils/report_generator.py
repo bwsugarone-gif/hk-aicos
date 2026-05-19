@@ -93,6 +93,10 @@ REPORT_HIGHLIGHT_KEYWORDS = (
     "PM final warning",
     "Blocked Escape",
     "Live Electrical",
+    "Delay Concern",
+    "unresolved",
+    "blocked",
+    "out of sequence",
     "即時整改",
     "Open Edge",
     "No Harness",
@@ -101,6 +105,12 @@ REPORT_HIGHLIGHT_KEYWORDS = (
     "高空工作",
     "禁止進入",
     "立即處理",
+    "工程時序分析",
+    "工序合理性分析",
+    "進度追蹤分析",
+    "重覆問題",
+    "未完成",
+    "阻塞",
     "EMERGENCY",
     "High Risk",
     "Critical",
@@ -201,6 +211,48 @@ def _lines_to_html(text: str, fallback: str = "未有補充資料。") -> str:
     )
 
 
+def _phase33_html(site_logic_result: dict = None, progress_result: dict = None) -> str:
+    blocks = []
+    if site_logic_result:
+        try:
+            from utils.site_logic_engine import format_site_logic_for_report
+            site_text = format_site_logic_for_report(site_logic_result)
+        except Exception:
+            site_text = ""
+        if site_text:
+            blocks.append('<div class="section-header">工序合理性分析</div>\n' + _lines_to_html(site_text))
+
+    if progress_result:
+        try:
+            from utils.progress_tracker import format_progress_for_report
+            progress_text = format_progress_for_report(progress_result)
+        except Exception:
+            progress_text = ""
+        if progress_text:
+            timeline = progress_result.get("timeline_comparison", {}) if isinstance(progress_result, dict) else {}
+            timeline_text = (
+                "進度變化\n"
+                f"上次 Session：{timeline.get('previous_session') or '未有足夠資料'}\n"
+                f"今次 Session：{timeline.get('current_session') or '未有足夠資料'}\n"
+                f"風險變化：{timeline.get('risk_change') or '未有足夠資料'}\n"
+                f"問題重覆：{timeline.get('repeated_count', 0)} 項"
+            )
+            delay_text = progress_result.get("delay_message") or "目前資料不足以判斷實際工期狀況。"
+            blocks.append('<div class="section-header">工程時序分析</div>\n' + _lines_to_html(timeline_text))
+            blocks.append('<div class="section-header">進度追蹤分析</div>\n' + _lines_to_html(progress_text))
+            blocks.append('<div class="section-header">Delay Concern</div>\n' + _lines_to_html(delay_text))
+
+    pm_lines = []
+    if isinstance(site_logic_result, dict) and site_logic_result.get("pm_summary"):
+        pm_lines.append(site_logic_result.get("pm_summary", ""))
+    if isinstance(progress_result, dict) and progress_result.get("pm_summary"):
+        pm_lines.append(progress_result.get("pm_summary", ""))
+    if pm_lines:
+        blocks.append('<div class="section-header">PM 工程狀態總結</div>\n' + _lines_to_html("\n".join(pm_lines)))
+
+    return "\n".join(blocks)
+
+
 # ── Department mapping ────────────────────────────────────────────────────────
 _DEPT_MAPPING = [
     (("工地安全","高空工作","棚架","竹棚","金屬棚","工人安全",
@@ -292,6 +344,7 @@ def _build_html(
     filename_hint: str,
     departments: list,
     agent_sections_html: str,
+    phase33_html: str,
     dept_html: str,
     professionals_html: str,
     font_path: str,
@@ -487,6 +540,8 @@ p {{
 
 {agent_sections_html}
 
+{phase33_html}
+
 <div class="section-header">可能涉及部門</div>
 {dept_html}
 
@@ -624,6 +679,8 @@ def generate_pdf_report(
     session_id: str = "",
     original_risk_level: str = "",
     highest_risk_agent: str = "",
+    site_logic_result: dict = None,
+    progress_result: dict = None,
 ) -> bytes:
     st         = _rl_styles()
     now        = datetime.now()
@@ -670,6 +727,8 @@ def generate_pdf_report(
         for prof in professionals_required:
             professionals_html += f"<p>{_html_escape(_clean_report_text(prof))}</p>\n"
 
+    phase33_html = _phase33_html(site_logic_result, progress_result)
+
     html_content = _build_html(
         report_id=report_id, now=now,
         analysis_type=analysis_type or "", question=question or "",
@@ -678,7 +737,7 @@ def generate_pdf_report(
         highest_risk_agent=highest_risk_agent or "",
         agent_labels=agent_labels, project_ref=project_ref or "",
         filename_hint=filename_hint or "", departments=departments,
-        agent_sections_html=agent_sections_html, dept_html=dept_html,
+        agent_sections_html=agent_sections_html, phase33_html=phase33_html, dept_html=dept_html,
         professionals_html=professionals_html,
         font_path=_FONT_FILE.as_posix(),
     )
@@ -784,6 +843,44 @@ def generate_pdf_report(
         fallback = AGENT_SECTION_FALLBACKS.get(agent_id, "未能取得該 Agent 的完整段落。")
         _rl_section_header(section_title, story, st)
         _rl_add_lines(story, agent_sections.get(agent_id, ""), st, fallback=fallback)
+
+    # Phase 3.3A/B: site logic and progress tracking
+    if site_logic_result:
+        try:
+            from utils.site_logic_engine import format_site_logic_for_report
+            _rl_section_header("工序合理性分析", story, st)
+            _rl_add_lines(story, format_site_logic_for_report(site_logic_result), st)
+        except Exception:
+            pass
+
+    if progress_result:
+        try:
+            from utils.progress_tracker import format_progress_for_report
+            timeline = progress_result.get("timeline_comparison", {}) if isinstance(progress_result, dict) else {}
+            timeline_text = (
+                "進度變化\n"
+                f"上次 Session：{timeline.get('previous_session') or '未有足夠資料'}\n"
+                f"今次 Session：{timeline.get('current_session') or '未有足夠資料'}\n"
+                f"風險變化：{timeline.get('risk_change') or '未有足夠資料'}\n"
+                f"問題重覆：{timeline.get('repeated_count', 0)} 項"
+            )
+            _rl_section_header("工程時序分析", story, st)
+            _rl_add_lines(story, timeline_text, st)
+            _rl_section_header("進度追蹤分析", story, st)
+            _rl_add_lines(story, format_progress_for_report(progress_result), st)
+            _rl_section_header("Delay Concern", story, st)
+            _rl_add_lines(story, progress_result.get("delay_message") or "目前資料不足以判斷實際工期狀況。", st)
+        except Exception:
+            pass
+
+    pm_phase33_lines = []
+    if isinstance(site_logic_result, dict) and site_logic_result.get("pm_summary"):
+        pm_phase33_lines.append(site_logic_result.get("pm_summary", ""))
+    if isinstance(progress_result, dict) and progress_result.get("pm_summary"):
+        pm_phase33_lines.append(progress_result.get("pm_summary", ""))
+    if pm_phase33_lines:
+        _rl_section_header("PM 工程狀態總結", story, st)
+        _rl_add_lines(story, "\n".join(pm_phase33_lines), st)
 
     # Departments
     _rl_section_header("可能涉及部門", story, st)

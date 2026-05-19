@@ -7,6 +7,7 @@ Buildway Tech (HK) Limited
 
 import streamlit as st
 from pathlib import Path
+from datetime import datetime
 import sys
 import os
 
@@ -51,14 +52,17 @@ from utils.project_manager import (
     build_pm_memory_context,
     create_project,
     get_project_report_path,
+    load_project,
     save_session as save_project_session,
 )
-from utils.action_manager import auto_create_action_from_session
+from utils.action_manager import auto_create_action_from_session, load_action_items
 from utils.image_understanding import process_image_with_understanding
 from utils.site_context_engine import (
     analyse_site_context,
     apply_context_risk_to_level,
 )
+from utils.site_logic_engine import analyse_site_logic, format_site_logic_for_report
+from utils.progress_tracker import analyse_progress, format_progress_for_report
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -651,6 +655,13 @@ if generate_btn:
             continuity_blocks.append(pm_memory_context)
         if prior_context:
             continuity_blocks.append(f"【項目歷史分析記錄】\n{prior_context}")
+        if "pm" in selected_agent_ids:
+            continuity_blocks.append(
+                "【Phase 3.3A/3.3B PM Agent 指示】\n"
+                "- PM Agent 需要檢查工程時序、工序合理性、工種衝突、現場 flow。\n"
+                "- PM Agent 需要引用 project timeline、repeated risks、unresolved actions。\n"
+                "- 如資料不足，不可估算工期，必須輸出：目前資料不足以判斷實際工期狀況。"
+            )
         prior_prefix = (
             "\n\n" + "\n\n".join(continuity_blocks) + "\n\n【本次分析】\n"
             if continuity_blocks else ""
@@ -851,6 +862,57 @@ if generate_btn:
                 except Exception as _ev_err:
                     print(f"[evidence_confidence] WARNING: {_ev_err}", file=sys.stderr)
 
+                # ── Phase 3.3A/B: Site logic + progress tracking ─────────────
+                site_logic_result = {}
+                progress_result = {}
+                try:
+                    _ocr_combined_for_logic = " ".join(
+                        fd.get("extracted_text", "") or ""
+                        for fd in _all_fd
+                    )
+                    site_logic_result = analyse_site_logic(
+                        text="\n".join([file_content or "", analysis_result or ""]),
+                        question=question,
+                        ocr_text=_ocr_combined_for_logic,
+                        site_context=site_context,
+                    )
+                except Exception as _logic_err:
+                    print(f"[site_logic] WARNING: {_logic_err}", file=sys.stderr)
+
+                try:
+                    _project_data = load_project(project_ref_clean) if project_ref_clean else {}
+                    try:
+                        _action_items = load_action_items()
+                    except Exception:
+                        _action_items = []
+                    _current_progress_session = {
+                        "session_id": current_session_id,
+                        "project_ref": project_ref_clean,
+                        "time": datetime.now().isoformat(timespec="seconds"),
+                        "analysis_type": ANALYSIS_DISPLAY[selected_type][1],
+                        "analysis_result": analysis_result,
+                        "summary": (analysis_result or "")[:300],
+                        "question": question,
+                        "risk_level": risk_level,
+                        "calibrated_risk_level": risk_level,
+                    }
+                    progress_result = analyse_progress(
+                        project_ref_clean,
+                        _current_progress_session,
+                        project_data=_project_data,
+                        action_items=_action_items,
+                    )
+                except Exception as _progress_err:
+                    print(f"[progress_tracker] WARNING: {_progress_err}", file=sys.stderr)
+
+                if site_logic_result or progress_result:
+                    pm_phase_33_block = "\n\nPM 工程狀態總結\n"
+                    if site_logic_result:
+                        pm_phase_33_block += format_site_logic_for_report(site_logic_result) + "\n"
+                    if progress_result:
+                        pm_phase_33_block += format_progress_for_report(progress_result) + "\n"
+                    analysis_result = (analysis_result or "") + pm_phase_33_block
+
                 # Derive departments for session record
                 _dept_text = "\n".join([selected_type, question, analysis_result])
                 _departments = _department_mapping(_dept_text)
@@ -913,6 +975,8 @@ if generate_btn:
                             session_id=current_session_id,
                             original_risk_level=original_risk_level,
                             highest_risk_agent=calibration_result.get("highest_risk_agent", ""),
+                            site_logic_result=site_logic_result,
+                            progress_result=progress_result,
                         )
                         project_report_path = get_project_report_path(project_ref_clean, current_session_id)
                         project_report_path.write_bytes(pdf_bytes)
@@ -1112,6 +1176,8 @@ if generate_btn:
                     "detected_issues": _detected_issues,
                     "conflict_result": conflict_result,
                     "site_context": site_context,
+                    "site_logic_result": site_logic_result,
+                    "progress_result": progress_result,
                 }
 
                 if risk_level != "低風險":

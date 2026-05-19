@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report, highlight_report_keywords_html
+from utils.site_logic_engine import format_site_logic_for_report
+from utils.progress_tracker import format_progress_for_report
 from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.project_manager import load_project
@@ -122,6 +124,16 @@ st.markdown("""
         font-size: 0.82rem;
         color: #555;
         margin-top: 1rem;
+    }
+
+    .phase33-box {
+        background: #f8f9fa;
+        border-left: 4px solid #1a3a5c;
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+        font-size: 0.94rem;
+        line-height: 1.7;
+        margin-bottom: 0.75rem;
     }
 
     .stButton > button[kind="primary"] {
@@ -511,6 +523,72 @@ if _site_context and _site_context.get("context_available"):
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── Phase 3.3A/B: Site Logic + Progress Tracking ─────────────────────────────
+_site_logic_result = data.get("site_logic_result", {})
+_progress_result = data.get("progress_result", {})
+
+if _site_logic_result or _progress_result:
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>工程時序分析</h3>', unsafe_allow_html=True)
+
+    if _progress_result:
+        _timeline = _progress_result.get("timeline_comparison", {})
+        _timeline_text = (
+            f"上次 Session：{_timeline.get('previous_session') or '未有足夠資料'}\n"
+            f"今次 Session：{_timeline.get('current_session') or data.get('session_id', '')}\n"
+            f"風險變化：{_timeline.get('risk_change') or '未有足夠資料'}\n"
+            f"進度變化：{_timeline.get('progress_change') or '目前資料不足以判斷實際工期狀況。'}"
+        )
+    else:
+        _timeline_text = "目前資料不足以判斷實際工期狀況。"
+    st.markdown(
+        f'<div class="phase33-box">{highlight_report_keywords_html(_timeline_text).replace(chr(10), "<br/>")}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<h3>工序合理性分析</h3>', unsafe_allow_html=True)
+    _logic_text = (
+        format_site_logic_for_report(_site_logic_result)
+        if _site_logic_result else "未有足夠現場資料進行工序合理性分析。"
+    )
+    st.markdown(
+        f'<div class="phase33-box">{highlight_report_keywords_html(_logic_text).replace(chr(10), "<br/>")}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<h3>進度追蹤分析</h3>', unsafe_allow_html=True)
+    _progress_text = (
+        format_progress_for_report(_progress_result)
+        if _progress_result else "目前資料不足以判斷實際工期狀況。"
+    )
+    st.markdown(
+        f'<div class="phase33-box">{highlight_report_keywords_html(_progress_text).replace(chr(10), "<br/>")}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<h3>Delay Concern</h3>', unsafe_allow_html=True)
+    _delay_text = (
+        _progress_result.get("delay_message")
+        if _progress_result else "目前資料不足以判斷實際工期狀況。"
+    )
+    st.markdown(
+        f'<div class="phase33-box">{highlight_report_keywords_html(_delay_text).replace(chr(10), "<br/>")}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if _progress_result.get("pm_summary") or _site_logic_result.get("pm_summary"):
+        st.markdown('<h3>PM 工程狀態總結</h3>', unsafe_allow_html=True)
+        _pm_text = "\n".join([
+            _site_logic_result.get("pm_summary", ""),
+            _progress_result.get("pm_summary", ""),
+        ]).strip()
+        st.markdown(
+            f'<div class="phase33-box">{highlight_report_keywords_html(_pm_text).replace(chr(10), "<br/>")}</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 證據可信度 ────────────────────────────────────────────────────────────────
 _evidence_result = data.get("evidence_result", {})
 if _evidence_result:
@@ -595,6 +673,8 @@ try:
             session_id=data.get("session_id", ""),
             original_risk_level=data.get("original_risk_level", risk_level),
             highest_risk_agent=data.get("highest_risk_agent", ""),
+            site_logic_result=data.get("site_logic_result", {}),
+            progress_result=data.get("progress_result", {}),
         )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(
