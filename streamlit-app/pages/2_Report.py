@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
-from utils.report_generator import generate_pdf_report
+from utils.report_generator import generate_pdf_report, highlight_report_keywords_html
 from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.project_manager import load_project
@@ -99,6 +99,10 @@ st.markdown("""
         border-left: 4px solid #4a6fa5;
         font-size: 0.97rem;
         line-height: 1.7;
+    }
+    .report-keyword {
+        color: #c0152a;
+        font-weight: 700;
     }
 
     .professional-alert {
@@ -296,7 +300,7 @@ for tech_phrase in [
         break
 
 st.markdown(
-    f'<div class="result-content">{analysis_text.replace(chr(10), "<br/>")}</div>',
+    f'<div class="result-content">{highlight_report_keywords_html(analysis_text).replace(chr(10), "<br/>")}</div>',
     unsafe_allow_html=True,
 )
 st.markdown('</div>', unsafe_allow_html=True)

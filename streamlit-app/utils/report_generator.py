@@ -87,6 +87,43 @@ BANNED_TECH_PATTERNS = (
 MARKDOWN_LINE_PREFIX = re.compile(r"^\s{0,4}(#{1,6}|\*+|-+|=+|•+)\s*")
 MARKDOWN_INLINE      = re.compile(r"[*_`>#]+")
 
+REPORT_HIGHLIGHT_COLOR = "#c0152a"
+REPORT_HIGHLIGHT_KEYWORDS = (
+    "PM Agent final warning",
+    "PM final warning",
+    "Blocked Escape",
+    "Live Electrical",
+    "即時整改",
+    "Open Edge",
+    "No Harness",
+    "No Helmet",
+    "法規風險",
+    "高空工作",
+    "禁止進入",
+    "立即處理",
+    "EMERGENCY",
+    "High Risk",
+    "Critical",
+    "Danger",
+    "Warning",
+    "Urgent",
+    "高風險",
+    "停工",
+    "危險",
+    "警告",
+    "違規",
+    "墮下",
+    "觸電",
+    "火警",
+    "final warning",
+    "最終警告",
+    "最後警告",
+)
+_REPORT_HIGHLIGHT_PATTERN = re.compile(
+    "|".join(re.escape(keyword) for keyword in sorted(REPORT_HIGHLIGHT_KEYWORDS, key=len, reverse=True)),
+    re.IGNORECASE,
+)
+
 
 def _normalise_risk(risk_level: str) -> str:
     raw = str(risk_level or "").strip()
@@ -123,12 +160,42 @@ def _html_escape(text: str) -> str:
     )
 
 
+def _highlight_report_keywords(text: str, before: str, after: str) -> str:
+    """Escape text and wrap only matched risk/action keywords."""
+    value = str(text or "")
+    parts = []
+    last = 0
+    for match in _REPORT_HIGHLIGHT_PATTERN.finditer(value):
+        parts.append(_html_escape(value[last:match.start()]))
+        parts.append(f"{before}{_html_escape(match.group(0))}{after}")
+        last = match.end()
+    parts.append(_html_escape(value[last:]))
+    return "".join(parts)
+
+
+def highlight_report_keywords_html(text: str) -> str:
+    """Return HTML-safe text with report keywords highlighted in red."""
+    return _highlight_report_keywords(
+        text,
+        f'<span class="report-keyword">',
+        "</span>",
+    )
+
+
+def _highlight_report_keywords_pdf(text: str) -> str:
+    return _highlight_report_keywords(
+        text,
+        f'<font color="{REPORT_HIGHLIGHT_COLOR}"><b>',
+        "</b></font>",
+    )
+
+
 def _lines_to_html(text: str, fallback: str = "未有補充資料。") -> str:
     cleaned = _clean_report_text(text)
     if not cleaned:
         cleaned = fallback
     return "".join(
-        f"<p>{_html_escape(line)}</p>"
+        f"<p>{highlight_report_keywords_html(line)}</p>"
         for line in cleaned.splitlines()
         if line.strip()
     )
@@ -356,6 +423,10 @@ p {{
     margin-bottom: 5pt;
     color: #1a1a2e;
 }}
+.report-keyword {{
+    color: #c0152a;
+    font-weight: 700;
+}}
 
 /* ── Notice box ── */
 .notice-box {{
@@ -523,6 +594,10 @@ def _rl_p(text: str, style) -> Paragraph:
     return Paragraph(_rl_escape(text), style)
 
 
+def _rl_p_highlighted(text: str, style) -> Paragraph:
+    return Paragraph(_highlight_report_keywords_pdf(text).replace("\n", "<br/>"), style)
+
+
 def _rl_section_header(title: str, story: list, st: dict):
     story.append(Spacer(1, 4 * mm))
     story.append(_rl_p(title, st["section"]))
@@ -533,7 +608,7 @@ def _rl_add_lines(story: list, text: str, st: dict, fallback: str = "未有補�
     if not cleaned:
         cleaned = fallback
     for line in cleaned.splitlines():
-        story.append(_rl_p(line, st["body"]))
+        story.append(_rl_p_highlighted(line, st["body"]))
 
 
 # ── Main public API ───────────────────────────────────────────────────────────
