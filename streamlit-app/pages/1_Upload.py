@@ -684,7 +684,7 @@ if generate_btn:
             print(f"[RAG Lite] WARNING: context injection failed: {rag_error}", file=sys.stderr)
 
         # ── Project continuity: inject prior session context ──────────────────
-        project_ref_clean = project_ref.strip()
+        project_ref_clean = project_ref.strip().lower()
         if project_ref_clean:
             try:
                 create_project(project_ref_clean)
@@ -788,6 +788,7 @@ if generate_btn:
                     response = ds_client.chat.completions.create(
                         model="deepseek-chat",
                         max_tokens=4096,
+                        temperature=0,
                         messages=[{"role": "user", "content": ds_prompt}],
                     )
                     analysis_result = response.choices[0].message.content
@@ -806,6 +807,7 @@ if generate_btn:
                         message = client.messages.create(
                             model="claude-opus-4-5",
                             max_tokens=4096,
+                            temperature=0,
                             messages=[{
                                 "role": "user",
                                 "content": [
@@ -818,6 +820,7 @@ if generate_btn:
                         message = client.messages.create(
                             model="claude-opus-4-5",
                             max_tokens=4096,
+                            temperature=0,
                             messages=[{"role": "user", "content": full_prompt}],
                         )
                     analysis_result = message.content[0].text

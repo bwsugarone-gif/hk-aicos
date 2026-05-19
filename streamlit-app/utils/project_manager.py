@@ -18,18 +18,22 @@ _BASE_DIR = Path(__file__).parent.parent
 _PROJECTS_DIR = _BASE_DIR / "projects"
 _SUMMARY_CHARS = 300
 
+# Ensure projects directory exists at import time
+_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
 def _safe_ref(project_ref: str) -> str:
-    raw = str(project_ref or "").strip()
+    # Normalize: strip whitespace, lowercase, replace invalid chars with -
+    raw = str(project_ref or "").strip().lower()
     if not raw:
         return ""
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", raw)
+    safe = re.sub(r"[^a-z0-9._-]+", "-", raw)
     safe = safe.strip(".-_")
-    return safe[:80] or "PROJECT"
+    return safe[:80] or "project"
 
 
 def _read_json(path: Path, default):
