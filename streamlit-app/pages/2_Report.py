@@ -530,87 +530,136 @@ _site_logic_result = data.get("site_logic_result", {})
 _progress_result = data.get("progress_result", {})
 _delay_concern_result = data.get("delay_concern_result", {})
 
-if _site_logic_result or _progress_result or _delay_concern_result:
+
+def _has_meaningful_text(text: str) -> bool:
+    """Return True only if text has real content beyond placeholder/fallback messages."""
+    if not text or not text.strip():
+        return False
+    _empty_markers = (
+        "目前資料不足", "未有足夠", "未偵測到", "未見明確",
+        "no issue detected", "insufficient data", "- 未",
+    )
+    _stripped = text.strip()
+    return not any(_stripped.startswith(m) or _stripped == m for m in _empty_markers)
+
+
+def _has_meaningful_delay(result: dict) -> bool:
+    """Return True if delay concern result has a non-zero score or real findings."""
+    if not result:
+        return False
+    score = result.get("score", 0) or 0
+    level = result.get("level", "") or ""
+    if score > 0:
+        return True
+    if level and level not in ("No Concern", ""):
+        return True
+    # Check if any sub-texts have real content
+    for key in ("repeated_issues_text", "workflow_blockage_text", "progress_concern", "pm_summary"):
+        val = result.get(key, "") or ""
+        if _has_meaningful_text(val):
+            return True
+    return False
+
+
+# Only render the whole section if at least one sub-section has real content
+_has_logic = bool(_site_logic_result and _site_logic_result.get("has_issues"))
+_has_progress = bool(_progress_result and _progress_result.get("has_data"))
+_has_delay = _has_meaningful_delay(_delay_concern_result)
+
+# Also check timeline for real data
+_timeline_has_data = False
+if _progress_result:
+    _tl = _progress_result.get("timeline_comparison", {})
+    _timeline_has_data = bool(
+        _tl.get("previous_session") or
+        (_tl.get("risk_change") and _tl.get("risk_change") != "未有足夠資料") or
+        (_tl.get("progress_change") and _tl.get("progress_change") != "目前資料不足以判斷實際工期狀況。")
+    )
+
+if _has_logic or _has_progress or _has_delay or _timeline_has_data:
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
     st.markdown('<h3>工程時序分析</h3>', unsafe_allow_html=True)
 
-    if _progress_result:
+    # Timeline — only show if has real data
+    if _timeline_has_data and _progress_result:
         _timeline = _progress_result.get("timeline_comparison", {})
         _timeline_text = (
             f"上次 Session：{_timeline.get('previous_session') or '未有足夠資料'}\n"
             f"今次 Session：{_timeline.get('current_session') or data.get('session_id', '')}\n"
             f"風險變化：{_timeline.get('risk_change') or '未有足夠資料'}\n"
-            f"進度變化：{_timeline.get('progress_change') or '目前資料不足以判斷實際工期狀況。'}"
+            f"進度變化：{_timeline.get('progress_change') or '未有足夠資料'}"
         )
-    else:
-        _timeline_text = "目前資料不足以判斷實際工期狀況。"
-    st.markdown(
-        f'<div class="phase33-box">{highlight_report_keywords_html(_timeline_text).replace(chr(10), "<br/>")}</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f'<div class="phase33-box">{highlight_report_keywords_html(_timeline_text).replace(chr(10), "<br/>")}</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown('<h3>工序合理性分析</h3>', unsafe_allow_html=True)
-    _logic_text = (
-        format_site_logic_for_report(_site_logic_result)
-        if _site_logic_result else "未有足夠現場資料進行工序合理性分析。"
-    )
-    st.markdown(
-        f'<div class="phase33-box">{highlight_report_keywords_html(_logic_text).replace(chr(10), "<br/>")}</div>',
-        unsafe_allow_html=True,
-    )
+    # Site logic — only show if has issues
+    if _has_logic:
+        _logic_text = format_site_logic_for_report(_site_logic_result)
+        if _has_meaningful_text(_logic_text):
+            st.markdown('<h3>工序合理性分析</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_logic_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-    st.markdown('<h3>進度追蹤分析</h3>', unsafe_allow_html=True)
-    _progress_text = (
-        format_progress_for_report(_progress_result)
-        if _progress_result else "目前資料不足以判斷實際工期狀況。"
-    )
-    st.markdown(
-        f'<div class="phase33-box">{highlight_report_keywords_html(_progress_text).replace(chr(10), "<br/>")}</div>',
-        unsafe_allow_html=True,
-    )
+    # Progress tracking — only show if has data
+    if _has_progress:
+        _progress_text = format_progress_for_report(_progress_result)
+        if _has_meaningful_text(_progress_text):
+            st.markdown('<h3>進度追蹤分析</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_progress_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-    st.markdown('<h3>Delay Concern</h3>', unsafe_allow_html=True)
-    if _delay_concern_result:
+    # Delay Concern — only show if score > 0 or real findings
+    if _has_delay and _delay_concern_result:
         _delay_text = format_delay_concern_for_report(_delay_concern_result)
-    else:
-        _delay_text = (
-            _progress_result.get("delay_message")
-            if _progress_result else "目前資料不足以判斷實際工期狀況。"
-        )
-    st.markdown(
-        f'<div class="phase33-box">{highlight_report_keywords_html(_delay_text).replace(chr(10), "<br/>")}</div>',
-        unsafe_allow_html=True,
-    )
+        if _has_meaningful_text(_delay_text):
+            st.markdown('<h3>Delay Concern</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_delay_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-    if _delay_concern_result:
-        st.markdown('<h3>Repeated Issues</h3>', unsafe_allow_html=True)
-        _repeated_text = _delay_concern_result.get("repeated_issues_text") or "- 未偵測到重覆 issue。"
-        st.markdown(
-            f'<div class="phase33-box">{highlight_report_keywords_html(_repeated_text).replace(chr(10), "<br/>")}</div>',
-            unsafe_allow_html=True,
-        )
+        # Repeated Issues — only show if has real content
+        _repeated_text = _delay_concern_result.get("repeated_issues_text", "") or ""
+        if _has_meaningful_text(_repeated_text):
+            st.markdown('<h3>Repeated Issues</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_repeated_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<h3>Workflow Blockage</h3>', unsafe_allow_html=True)
-        _blockage_text = _delay_concern_result.get("workflow_blockage_text") or "- 未偵測到 workflow blockage。"
-        st.markdown(
-            f'<div class="phase33-box">{highlight_report_keywords_html(_blockage_text).replace(chr(10), "<br/>")}</div>',
-            unsafe_allow_html=True,
-        )
+        # Workflow Blockage — only show if has real content
+        _blockage_text = _delay_concern_result.get("workflow_blockage_text", "") or ""
+        if _has_meaningful_text(_blockage_text):
+            st.markdown('<h3>Workflow Blockage</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_blockage_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<h3>Progress Concern</h3>', unsafe_allow_html=True)
-        _progress_concern_text = _delay_concern_result.get("progress_concern") or "- 未見明確 delay concern signal。"
-        st.markdown(
-            f'<div class="phase33-box">{highlight_report_keywords_html(_progress_concern_text).replace(chr(10), "<br/>")}</div>',
-            unsafe_allow_html=True,
-        )
+        # Progress Concern — only show if has real content
+        _progress_concern_text = _delay_concern_result.get("progress_concern", "") or ""
+        if _has_meaningful_text(_progress_concern_text):
+            st.markdown('<h3>Progress Concern</h3>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="phase33-box">{highlight_report_keywords_html(_progress_concern_text).replace(chr(10), "<br/>")}</div>',
+                unsafe_allow_html=True,
+            )
 
-    if _progress_result.get("pm_summary") or _site_logic_result.get("pm_summary") or _delay_concern_result.get("pm_summary"):
+    # PM summary — only show if has real content
+    _pm_parts = [
+        _site_logic_result.get("pm_summary", "") or "",
+        _progress_result.get("pm_summary", "") or "",
+        _delay_concern_result.get("pm_summary", "") if _delay_concern_result else "",
+    ]
+    _pm_text = "\n".join(p for p in _pm_parts if p).strip()
+    if _has_meaningful_text(_pm_text):
         st.markdown('<h3>PM 工程狀態總結</h3>', unsafe_allow_html=True)
-        _pm_text = "\n".join([
-            _site_logic_result.get("pm_summary", ""),
-            _progress_result.get("pm_summary", ""),
-            _delay_concern_result.get("pm_summary", ""),
-        ]).strip()
         st.markdown(
             f'<div class="phase33-box">{highlight_report_keywords_html(_pm_text).replace(chr(10), "<br/>")}</div>',
             unsafe_allow_html=True,
