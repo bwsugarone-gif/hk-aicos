@@ -616,6 +616,41 @@ if generate_btn:
         file_description = file_data_to_use["description"] if file_data_to_use else ""
         file_content = file_data_to_use["content"] if file_data_to_use else ""
         file_name = st.session_state.get("current_file_name", "")
+        _all_fd_early = st.session_state.get("current_all_file_data", [])
+        _project_ref_early = project_ref.strip()
+
+        # ── Evidence Validation Gate (HARD STOP) ─────────────────────────────
+        # Must run before ANY pipeline work: no agents, no scoring, no memory.
+        _gate_has_file = bool(_all_fd_early)
+        _gate_has_ocr = any(
+            (fd.get("extracted_text") or "").strip()
+            for fd in _all_fd_early
+        )
+        _gate_has_image = any(fd.get("type") == "image" for fd in _all_fd_early)
+        _gate_has_content = bool((file_content or "").strip())
+        _gate_has_prompt = len((question or "").strip()) > 15
+        _gate_has_project = False
+        if _project_ref_early:
+            try:
+                _gate_has_project = bool(load_project(_project_ref_early).get("sessions"))
+            except Exception:
+                pass
+
+        _evidence_sufficient = (
+            _gate_has_file
+            or _gate_has_ocr
+            or _gate_has_image
+            or _gate_has_content
+            or _gate_has_prompt
+            or _gate_has_project
+        )
+
+        if not _evidence_sufficient:
+            st.error(
+                "資料不足，請上載現場相片、工程文件、WhatsApp 記錄，或輸入具體描述。"
+            )
+            st.stop()
+        # ── End Evidence Validation Gate ──────────────────────────────────────
 
         # Build prompt from selected agents (agent-driven mode)
         selected_agent_ids = st.session_state["selected_agents"]
@@ -711,48 +746,6 @@ if generate_btn:
         )
         professionals = get_required_professionals(selected_type, question, file_description)
         provider, api_key = _get_api_key()
-
-        # ── Evidence Validation Gate ──────────────────────────────────────────
-        # Hard stop: at least one evidence source must exist before AI analysis.
-        _gate_has_file = bool(_all_fd)
-        _gate_has_ocr = any(
-            (fd.get("extracted_text") or "").strip()
-            for fd in _all_fd
-        )
-        _gate_has_image = any(fd.get("type") == "image" for fd in _all_fd)
-        _gate_has_prompt = len((question or "").strip()) > 15
-        _gate_has_project = bool(project_ref_clean and load_project(project_ref_clean).get("sessions"))
-
-        _evidence_sufficient = (
-            _gate_has_file
-            or _gate_has_ocr
-            or _gate_has_image
-            or _gate_has_prompt
-            or _gate_has_project
-        )
-
-        if not _evidence_sufficient:
-            st.markdown("""
-<div style="background:#fff3cd;border:2px solid #ffc107;border-radius:12px;
-            padding:1.5rem 2rem;margin:1.5rem 0;text-align:center;">
-  <div style="font-size:1.5rem;margin-bottom:0.5rem;">⚠️</div>
-  <div style="font-size:1.1rem;font-weight:700;color:#856404;margin-bottom:0.8rem;">
-    資料不足，無法進行分析
-  </div>
-  <div style="font-size:0.95rem;color:#856404;margin-bottom:1rem;">
-    請上載以下其中一項資料，才可啟動 AI 分析：
-  </div>
-  <div style="text-align:left;display:inline-block;font-size:0.93rem;color:#555;">
-    📷 現場相片<br/>
-    📄 工程文件（PDF / Excel / Word）<br/>
-    💬 WhatsApp 截圖或記錄<br/>
-    ✏️ 補充描述（多於 15 字）<br/>
-    🗂️ 已有工程記憶（Project Ref）
-  </div>
-</div>
-""", unsafe_allow_html=True)
-            st.stop()
-        # ── End Evidence Validation Gate ──────────────────────────────────────
 
         # Generate a session_id now so it can be stored in last_analysis for PDF
         current_session_id = make_session_id()
