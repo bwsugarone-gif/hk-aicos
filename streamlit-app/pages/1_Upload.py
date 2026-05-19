@@ -63,6 +63,7 @@ from utils.site_context_engine import (
 )
 from utils.site_logic_engine import analyse_site_logic, format_site_logic_for_report
 from utils.progress_tracker import analyse_progress, format_progress_for_report
+from utils.delay_concern_engine import analyse_delay_concern, format_delay_concern_for_report
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -657,10 +658,11 @@ if generate_btn:
             continuity_blocks.append(f"【項目歷史分析記錄】\n{prior_context}")
         if "pm" in selected_agent_ids:
             continuity_blocks.append(
-                "【Phase 3.3A/3.3B PM Agent 指示】\n"
+                "【Phase 3.3A/3.3B/3.3C PM Agent 指示】\n"
                 "- PM Agent 需要檢查工程時序、工序合理性、工種衝突、現場 flow。\n"
                 "- PM Agent 需要引用 project timeline、repeated risks、unresolved actions。\n"
-                "- 如資料不足，不可估算工期，必須輸出：目前資料不足以判斷實際工期狀況。"
+                "- PM Agent 需要輸出 Delay Concern Summary，但不可估算 delay days 或完工日期。\n"
+                "- 如資料不足，不可估算工期，必須輸出：目前資料不足以判斷實際工期影響。"
             )
         prior_prefix = (
             "\n\n" + "\n\n".join(continuity_blocks) + "\n\n【本次分析】\n"
@@ -865,6 +867,7 @@ if generate_btn:
                 # ── Phase 3.3A/B: Site logic + progress tracking ─────────────
                 site_logic_result = {}
                 progress_result = {}
+                delay_concern_result = {}
                 try:
                     _ocr_combined_for_logic = " ".join(
                         fd.get("extracted_text", "") or ""
@@ -905,12 +908,35 @@ if generate_btn:
                 except Exception as _progress_err:
                     print(f"[progress_tracker] WARNING: {_progress_err}", file=sys.stderr)
 
-                if site_logic_result or progress_result:
+                try:
+                    delay_concern_result = analyse_delay_concern(
+                        project_ref=project_ref_clean,
+                        current_session=_current_progress_session if "_current_progress_session" in locals() else {
+                            "session_id": current_session_id,
+                            "project_ref": project_ref_clean,
+                            "time": datetime.now().isoformat(timespec="seconds"),
+                            "analysis_result": analysis_result,
+                            "summary": (analysis_result or "")[:300],
+                            "question": question,
+                            "risk_level": risk_level,
+                        },
+                        project_data=_project_data if "_project_data" in locals() else {},
+                        action_items=_action_items if "_action_items" in locals() else [],
+                        site_logic_result=site_logic_result,
+                        progress_result=progress_result,
+                        ocr_text=_ocr_combined_for_logic if "_ocr_combined_for_logic" in locals() else "",
+                    )
+                except Exception as _delay_err:
+                    print(f"[delay_concern] WARNING: {_delay_err}", file=sys.stderr)
+
+                if site_logic_result or progress_result or delay_concern_result:
                     pm_phase_33_block = "\n\nPM 工程狀態總結\n"
                     if site_logic_result:
                         pm_phase_33_block += format_site_logic_for_report(site_logic_result) + "\n"
                     if progress_result:
                         pm_phase_33_block += format_progress_for_report(progress_result) + "\n"
+                    if delay_concern_result:
+                        pm_phase_33_block += format_delay_concern_for_report(delay_concern_result) + "\n"
                     analysis_result = (analysis_result or "") + pm_phase_33_block
 
                 # Derive departments for session record
@@ -977,6 +1003,7 @@ if generate_btn:
                             highest_risk_agent=calibration_result.get("highest_risk_agent", ""),
                             site_logic_result=site_logic_result,
                             progress_result=progress_result,
+                            delay_concern_result=delay_concern_result,
                         )
                         project_report_path = get_project_report_path(project_ref_clean, current_session_id)
                         project_report_path.write_bytes(pdf_bytes)
@@ -1015,6 +1042,18 @@ if generate_btn:
                                 session_id=current_session_id,
                                 risk=(analysis_result or "")[:160],
                                 risk_level=risk_level,
+                                status="open",
+                            )
+                        if delay_concern_result.get("memory_should_record"):
+                            append_risk_event(
+                                project_ref=project_ref_clean,
+                                session_id=current_session_id,
+                                risk=(
+                                    f"Delay Concern {delay_concern_result.get('level')}: "
+                                    f"score {delay_concern_result.get('score')} - "
+                                    f"{delay_concern_result.get('summary', '')}"
+                                )[:160],
+                                risk_level=delay_concern_result.get("level", "Moderate Concern"),
                                 status="open",
                             )
                     except Exception:
@@ -1178,6 +1217,7 @@ if generate_btn:
                     "site_context": site_context,
                     "site_logic_result": site_logic_result,
                     "progress_result": progress_result,
+                    "delay_concern_result": delay_concern_result,
                 }
 
                 if risk_level != "低風險":

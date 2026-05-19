@@ -94,9 +94,19 @@ REPORT_HIGHLIGHT_KEYWORDS = (
     "Blocked Escape",
     "Live Electrical",
     "Delay Concern",
+    "Critical Concern",
+    "High Concern",
+    "Moderate Concern",
+    "Workflow Blockage",
+    "Progress Concern",
+    "Repeated Issues",
     "unresolved",
     "blocked",
     "out of sequence",
+    "material not arrived",
+    "inspection not completed",
+    "testing not completed",
+    "water leakage",
     "即時整改",
     "Open Edge",
     "No Harness",
@@ -109,6 +119,13 @@ REPORT_HIGHLIGHT_KEYWORDS = (
     "工序合理性分析",
     "進度追蹤分析",
     "重覆問題",
+    "工期影響",
+    "早期預警",
+    "材料未到",
+    "物料未到",
+    "未完成檢查",
+    "未完成測試",
+    "滲漏",
     "未完成",
     "阻塞",
     "EMERGENCY",
@@ -211,7 +228,7 @@ def _lines_to_html(text: str, fallback: str = "未有補充資料。") -> str:
     )
 
 
-def _phase33_html(site_logic_result: dict = None, progress_result: dict = None) -> str:
+def _phase33_html(site_logic_result: dict = None, progress_result: dict = None, delay_concern_result: dict = None) -> str:
     blocks = []
     if site_logic_result:
         try:
@@ -240,7 +257,8 @@ def _phase33_html(site_logic_result: dict = None, progress_result: dict = None) 
             delay_text = progress_result.get("delay_message") or "目前資料不足以判斷實際工期狀況。"
             blocks.append('<div class="section-header">工程時序分析</div>\n' + _lines_to_html(timeline_text))
             blocks.append('<div class="section-header">進度追蹤分析</div>\n' + _lines_to_html(progress_text))
-            blocks.append('<div class="section-header">Delay Concern</div>\n' + _lines_to_html(delay_text))
+            if not delay_concern_result:
+                blocks.append('<div class="section-header">Delay Concern</div>\n' + _lines_to_html(delay_text))
 
     pm_lines = []
     if isinstance(site_logic_result, dict) and site_logic_result.get("pm_summary"):
@@ -249,6 +267,15 @@ def _phase33_html(site_logic_result: dict = None, progress_result: dict = None) 
         pm_lines.append(progress_result.get("pm_summary", ""))
     if pm_lines:
         blocks.append('<div class="section-header">PM 工程狀態總結</div>\n' + _lines_to_html("\n".join(pm_lines)))
+
+    if delay_concern_result:
+        try:
+            from utils.delay_concern_engine import format_delay_concern_for_report
+            delay_text = format_delay_concern_for_report(delay_concern_result)
+        except Exception:
+            delay_text = ""
+        if delay_text:
+            blocks.append('<div class="section-header">Delay Concern</div>\n' + _lines_to_html(delay_text))
 
     return "\n".join(blocks)
 
@@ -681,6 +708,7 @@ def generate_pdf_report(
     highest_risk_agent: str = "",
     site_logic_result: dict = None,
     progress_result: dict = None,
+    delay_concern_result: dict = None,
 ) -> bytes:
     st         = _rl_styles()
     now        = datetime.now()
@@ -727,7 +755,7 @@ def generate_pdf_report(
         for prof in professionals_required:
             professionals_html += f"<p>{_html_escape(_clean_report_text(prof))}</p>\n"
 
-    phase33_html = _phase33_html(site_logic_result, progress_result)
+    phase33_html = _phase33_html(site_logic_result, progress_result, delay_concern_result)
 
     html_content = _build_html(
         report_id=report_id, now=now,
@@ -868,8 +896,9 @@ def generate_pdf_report(
             _rl_add_lines(story, timeline_text, st)
             _rl_section_header("進度追蹤分析", story, st)
             _rl_add_lines(story, format_progress_for_report(progress_result), st)
-            _rl_section_header("Delay Concern", story, st)
-            _rl_add_lines(story, progress_result.get("delay_message") or "目前資料不足以判斷實際工期狀況。", st)
+            if not delay_concern_result:
+                _rl_section_header("Delay Concern", story, st)
+                _rl_add_lines(story, progress_result.get("delay_message") or "目前資料不足以判斷實際工期狀況。", st)
         except Exception:
             pass
 
@@ -881,6 +910,14 @@ def generate_pdf_report(
     if pm_phase33_lines:
         _rl_section_header("PM 工程狀態總結", story, st)
         _rl_add_lines(story, "\n".join(pm_phase33_lines), st)
+
+    if delay_concern_result:
+        try:
+            from utils.delay_concern_engine import format_delay_concern_for_report
+            _rl_section_header("Delay Concern", story, st)
+            _rl_add_lines(story, format_delay_concern_for_report(delay_concern_result), st)
+        except Exception:
+            pass
 
     # Departments
     _rl_section_header("可能涉及部門", story, st)
