@@ -307,9 +307,15 @@ def build_prompt_from_agents(
             f"Agent：{agent['display']}\n"
             f"Instruction：\n{instruction}"
         )
+        is_pm = agent["id"] == "pm"
+        pm_extra = (
+            "\n已確認重點\n主要風險\n需確認事項\n建議行動\nPM 最終判斷"
+            if is_pm else
+            "\n已確認重點\n主要風險\n需確認事項\n建議行動"
+        )
         output_sections.append(
             f"{agent['report_section']}\n"
-            f"請只輸出與 {agent['display']} 職責相關的重點、風險、影響及跟進建議。"
+            f"請只輸出與 {agent['display']} 職責相關的內容，按以下 4 個 section 輸出：{pm_extra}"
         )
 
     reference_text = rag_context.strip() if rag_context else "沒有額外參考資料。"
@@ -320,12 +326,39 @@ def build_prompt_from_agents(
 不要提及 backend、prompt、model、API、debug 或系統內部字眼。
 語氣要專業、直接、可交付，重點放在工程事實、風險、責任、影響及下一步行動。
 
-報告長度規定（每個 Agent 章節）：
-- 主要風險：最多 3 項，每項 1–2 句
-- 建議行動：最多 3 項，每項 1 句
-- 跟進事項：最多 2 項，每項 1 句
-- 不要重複其他 Agent 已提及的風險，如有相同風險請略去
+報告格式規定（每個 Agent 必須按以下 4 個 section 輸出）：
+
+1. 已確認重點
+   - 最多 3 點
+   - 每點 1 句，基於實際證據
+
+2. 主要風險
+   - 最多 3 點
+   - 每點 1–2 句，說明風險及影響
+
+3. 需確認事項
+   - 最多 2 點
+   - 包括：未能確認、合理懷疑、不可推測、需補充資料
+   - 每點 1 句
+
+4. 建議行動
+   - 最多 3 點
+   - 每點 1 句，可執行的具體行動
+
+報告長度限制：
+- 每個 Agent 章節最多 250-350 字
+- 不要長篇法例解釋
+- 法規只保留：「可能涉及勞工處 / 屋宇署 / EMSD」
+- 詳細法例不放主報告
+- 不要重複其他 Agent 已提及的風險
 - 不要加入與 Agent 職責無關的內容
+
+PM Agent 特別要求（如選中 PM Agent）：
+PM Agent 必須在最後輸出「PM 最終判斷」section，包括：
+- 可否繼續施工（可以 / 有限度 / 須停工）
+- 最重要風險（1 項）
+- 即時行動（1–2 項）
+- 需誰確認（例如：安全主任 / 認可人士 / 註冊工程師）
 
 已選擇 Agent：
 {selected_names}
