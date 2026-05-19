@@ -65,6 +65,11 @@ from utils.site_logic_engine import analyse_site_logic, format_site_logic_for_re
 from utils.progress_tracker import analyse_progress, format_progress_for_report
 from utils.delay_concern_engine import analyse_delay_concern, format_delay_concern_for_report
 from utils.resource_workforce_engine import analyse_resource_workforce, format_resource_workforce_for_report
+from utils.site_instruction_engine import (
+    generate_site_instructions,
+    create_action_items_from_instructions,
+    write_instruction_to_memory,
+)
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -1235,6 +1240,33 @@ if generate_btn:
                     "delay_concern_result": delay_concern_result,
                     "resource_workforce_result": resource_workforce_result,
                 }
+
+                # ── Phase 3.3E: Site Instruction & Follow-up Workflow ─────────
+                site_instruction_result = {}
+                try:
+                    site_instruction_result = generate_site_instructions(
+                        st.session_state["last_analysis"]
+                    )
+                    st.session_state["last_analysis"]["site_instruction_result"] = site_instruction_result
+                    # Action Tracker: create action items from instructions
+                    if site_instruction_result.get("has_instructions"):
+                        create_action_items_from_instructions(
+                            instructions=site_instruction_result.get("instructions", []),
+                            project_ref=project_ref_clean or "未填寫",
+                            session_id=current_session_id,
+                        )
+                    # Memory: write instruction summary
+                    write_instruction_to_memory(
+                        result=site_instruction_result,
+                        session_data={
+                            "project_ref": project_ref_clean,
+                            "session_id": current_session_id,
+                            "risk_level": risk_level,
+                            "analysis_type": ANALYSIS_DISPLAY[selected_type][1],
+                        },
+                    )
+                except Exception as _si_err:
+                    print(f"[site_instruction] WARNING: {_si_err}", file=sys.stderr)
 
                 if risk_level != "低風險":
                     try:

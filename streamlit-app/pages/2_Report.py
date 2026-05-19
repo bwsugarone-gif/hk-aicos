@@ -803,6 +803,69 @@ if _evidence_result:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ── Phase 3.3E: Site Instruction & Follow-up Workflow ─────────────────────────
+_site_instruction_result = data.get("site_instruction_result", {})
+if _site_instruction_result and _site_instruction_result.get("has_instructions"):
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>📋 建議跟進指令</h3>', unsafe_allow_html=True)
+    
+    _instructions = _site_instruction_result.get("instructions", [])
+    _high_count = _site_instruction_result.get("high_priority_count", 0)
+    _insufficient = _site_instruction_result.get("insufficient_data", False)
+    
+    if _insufficient:
+        st.warning("⚠️ 資料不足以發出正式指令，建議先補充相片、文件或現場紀錄。")
+    
+    if _high_count > 0:
+        st.markdown(
+            f'<div style="background:#fde8eb;border-left:4px solid #dc3545;'
+            f'border-radius:6px;padding:0.7rem 1rem;margin-bottom:0.8rem;">'
+            f'<strong style="color:#dc3545;">⚠️ 有 {_high_count} 項高優先級指令需即時跟進</strong>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    
+    for instr in _instructions:
+        _instr_type_label = instr.get("instruction_type_label", "")
+        _instr_priority = instr.get("priority", "中")
+        _instr_issued_to = instr.get("issued_to", "待確認")
+        _instr_title = instr.get("instruction_title", "")
+        _instr_detail = instr.get("instruction_detail", "")
+        _instr_action = instr.get("required_action", "")
+        _instr_evidence = instr.get("evidence_source", [])
+        _instr_repeated = instr.get("repeated_follow_up", False)
+        
+        _pri_color = {"高": "#dc3545", "中": "#fd7e14", "低": "#28a745"}.get(_instr_priority, "#6c757d")
+        _repeated_tag = '<span style="color:#dc3545;font-weight:600;"> (重複跟進)</span>' if _instr_repeated else ""
+        
+        st.markdown(
+            f'<div style="background:#f8f9fa;border-left:4px solid {_pri_color};'
+            f'border-radius:6px;padding:0.8rem 1rem;margin-bottom:0.8rem;">'
+            f'<div style="font-weight:700;color:{_pri_color};margin-bottom:0.3rem;">'
+            f'[{_instr_priority}] {_instr_type_label}{_repeated_tag}</div>'
+            f'<div style="font-size:0.95rem;margin-bottom:0.4rem;"><strong>對象：</strong>{_instr_issued_to}</div>'
+            f'<div style="font-size:0.9rem;color:#555;margin-bottom:0.4rem;">{highlight_report_keywords_html(_instr_title)}</div>'
+            f'<div style="font-size:0.88rem;color:#666;margin-bottom:0.4rem;">{highlight_report_keywords_html(_instr_action)}</div>',
+            unsafe_allow_html=True,
+        )
+        if _instr_evidence:
+            _ev_str = "、".join(_instr_evidence)
+            st.markdown(
+                f'<div style="font-size:0.82rem;color:#888;">證據來源：{_ev_str}</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    _pm_summary = _site_instruction_result.get("pm_summary", "")
+    if _pm_summary:
+        st.markdown('<h3>PM 指令總結</h3>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="phase33-box">{highlight_report_keywords_html(_pm_summary).replace(chr(10), "<br/>")}</div>',
+            unsafe_allow_html=True,
+        )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── 下載 PDF ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="report-section">', unsafe_allow_html=True)
 st.markdown('<h3>📥 下載報告</h3>', unsafe_allow_html=True)

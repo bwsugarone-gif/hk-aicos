@@ -152,6 +152,11 @@ REPORT_HIGHLIGHT_KEYWORDS = (
     "final warning",
     "最終警告",
     "最後警告",
+    "分判跟進",
+    "安全跟進",
+    "需補充資料",
+    "整改通知",
+    "正式現場指令",
 )
 _REPORT_HIGHLIGHT_PATTERN = re.compile(
     "|".join(re.escape(keyword) for keyword in sorted(REPORT_HIGHLIGHT_KEYWORDS, key=len, reverse=True)),
