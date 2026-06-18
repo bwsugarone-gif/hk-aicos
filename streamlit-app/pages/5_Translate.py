@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.logo_helper import sidebar_logo
+from utils.navigation import render_navigation_links
 
 st.set_page_config(
     page_title="文件翻譯與轉換 | HK-AICOS",
@@ -112,12 +113,7 @@ st.markdown("""
 with st.sidebar:
     sidebar_logo()
     st.markdown("---")
-    st.page_link("app.py",               label="🏠 首頁")
-    st.page_link("pages/1_Upload.py",    label="📤 上載分析")
-    st.page_link("pages/2_Report.py",    label="📄 分析報告")
-    st.page_link("pages/3_History.py",   label="🕘 歷史紀錄")
-    st.page_link("pages/5_Translate.py", label="📑 文件翻譯與轉換")
-    st.page_link("pages/4_About.py",     label="ℹ️ 關於 Buildway Tech")
+    render_navigation_links()
     st.markdown("---")
     st.markdown('<div style="font-size:0.78rem; color:#aac4e0;">🔒 所有資料安全處理</div>', unsafe_allow_html=True)
 

@@ -8,7 +8,20 @@ Developed by **Buildway Tech (HK) Limited**
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. 建立建議的 Python 環境
+
+建議使用 **Python 3.11.9**。Python 3.14 並非本專案的目標執行環境；請勿提交由其他 Python 版本產生的 bytecode/cache 檔案。
+
+Windows（在專案根目錄執行）：
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r streamlit-app/requirements.txt
+streamlit run streamlit-app/app.py
+```
+
+### 2. Install dependencies（現有環境）
 
 ```bash
 cd streamlit-app
@@ -16,15 +29,15 @@ pip install -r requirements.txt
 pip install anthropic
 ```
 
-### 2. Set up API key (optional — app runs in demo mode without it)
+### 3. Set up API key (optional — app runs in demo mode without it)
 
 Create a `.env` file in this directory:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+ANTHROPIC_API_KEY=
 ```
 
-### 3. Run the app
+### 4. Run the app
 
 ```bash
 streamlit run app.py

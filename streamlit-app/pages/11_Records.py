@@ -18,18 +18,24 @@ from utils.site_record_store import (
     STATUS_OPTIONS,
     SiteRecordStore,
 )
+from utils.logo_helper import sidebar_logo
+from utils.navigation import render_navigation_links
 
 
 st.set_page_config(page_title="地盤記錄", page_icon="🗂️", layout="wide")
 
 with st.sidebar:
-    st.page_link("app.py", label="🏠 首頁")
-    st.page_link("pages/1_Upload.py", label="📤 上載分析")
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS")
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄")
+    sidebar_logo()
+    st.markdown("---")
+    render_navigation_links()
 
 st.title("地盤記錄")
 st.caption(f"本機 JSONL 儲存位置：{DEFAULT_RECORD_PATH.relative_to(APP_ROOT)}")
+quick_upload, quick_ask = st.columns(2)
+with quick_upload:
+    st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
+with quick_ask:
+    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
 if st.session_state.get("record_update_message"):
     st.success(st.session_state.pop("record_update_message"))
 

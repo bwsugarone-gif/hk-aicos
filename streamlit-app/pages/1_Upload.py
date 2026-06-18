@@ -44,6 +44,12 @@ from utils.rag_reader import build_rag_context
 from utils.rag_manager import get_relevant_context_for_agents
 from utils.lang import UPLOAD, ANALYSIS_TYPES, AGENTS, AGENT_ORDER as AGENT_ORDER_LANG, NAV, BRAND
 from utils.logo_helper import sidebar_logo
+from utils.navigation import render_navigation_links
+from utils.agent_selection_state import (
+    agent_checkbox_key,
+    build_agent_checkbox_state,
+    selected_agents_from_checkbox_state,
+)
 from utils.session_memory import save_session as save_legacy_session, get_prior_context, make_session_id
 from utils.report_generator import _department_mapping, _split_agent_sections, generate_pdf_report
 from utils.risk_calibrator import calculate_overall_project_risk
@@ -209,18 +215,7 @@ st.markdown("""
 with st.sidebar:
     sidebar_logo()
     st.markdown("---")
-    st.page_link("app.py", label="🏠 首頁")
-    st.page_link("pages/1_Upload.py", label="📤 上載分析")
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS")
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄")
-    st.page_link("pages/2_Report.py", label="📄 分析報告")
-    st.page_link("pages/3_History.py",   label="🕘 歷史紀錄")
-    st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽")
-    st.page_link("pages/8_Risk_Center.py", label="⚠️ 工程風險中心")
-    st.page_link("pages/9_Action_Tracker.py", label="✅ 跟進事項中心")
-    st.page_link("pages/6_Memory_Manager.py", label="🧠 工程記憶管理")
-    st.page_link("pages/5_Translate.py", label="📑 文件翻譯與轉換")
-    st.page_link("pages/4_About.py",     label="ℹ️ 關於 Buildway Tech")
+    render_navigation_links()
     st.markdown("---")
     st.markdown('<div style="font-size:0.78rem; color:#aac4e0;">🔒 所有資料安全處理</div>', unsafe_allow_html=True)
 
@@ -532,9 +527,9 @@ _auto_selected_agents = _recommended if _recommended else ["pm", "safety"]
 
 
 def _apply_agent_checkbox_state(agent_ids: list[str]) -> None:
-    st.session_state["selected_agents"] = list(agent_ids)
-    for _agent_id in AGENT_ORDER:
-        st.session_state[f"agent_cb_{_agent_id}"] = _agent_id in agent_ids
+    selected = [_agent_id for _agent_id in AGENT_ORDER if _agent_id in agent_ids]
+    st.session_state["selected_agents"] = selected
+    st.session_state.update(build_agent_checkbox_state(AGENT_ORDER, selected))
 
 # Only auto-apply recommendation on first load or when file changes
 _file_sig = f"{_smart_ftype}:{st.session_state.get('current_file_name','')}"
@@ -544,6 +539,13 @@ if (
 ):
     _apply_agent_checkbox_state(_auto_selected_agents)
     st.session_state["_last_file_sig"]  = _file_sig
+
+# Initialize any widget keys introduced after an existing session was created.
+for _checkbox_key, _checked in build_agent_checkbox_state(
+    AGENT_ORDER,
+    st.session_state.get("selected_agents", []),
+).items():
+    st.session_state.setdefault(_checkbox_key, _checked)
 
 # Show smart recommendation notice
 if _auto_selected_agents:
@@ -563,21 +565,17 @@ if _auto_selected_agents:
 st.markdown("選擇參與分析的 Agent。每個 Agent 負責不同範疇，可多選。至少選擇一個。")
 
 agent_cols = st.columns(2)
-new_selection = []
 for idx, agent_id in enumerate(AGENT_ORDER):
     agent_ui = AGENTS[agent_id]
-    is_checked = agent_id in st.session_state["selected_agents"]
     with agent_cols[idx % 2]:
-        checked = st.checkbox(
+        st.checkbox(
             f"{agent_ui['icon']} **{agent_ui['label']}** — {agent_ui['sublabel']}",
-            value=is_checked,
-            key=f"agent_cb_{agent_id}",
+            key=agent_checkbox_key(agent_id),
             help=agent_ui["desc"],
         )
-        if checked:
-            new_selection.append(agent_id)
 
 # Update session state and warn on empty selection
+new_selection = selected_agents_from_checkbox_state(AGENT_ORDER, st.session_state)
 st.session_state["selected_agents"] = new_selection
 
 if not new_selection:

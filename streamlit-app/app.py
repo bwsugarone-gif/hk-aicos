@@ -13,6 +13,7 @@ import os
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.lang import HOME, NAV, BRAND, ANALYSIS_TYPES
+from utils.navigation import render_navigation_links
 
 # ── 載入 .env（如存在）──────────────────────────────────────────────────────
 try:
@@ -157,17 +158,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     st.markdown("")
-    st.page_link("app.py", label="🏠 首頁", icon=None)
-    st.page_link("pages/1_Upload.py", label="📤 上載分析", icon=None)
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", icon=None)
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄", icon=None)
-    st.page_link("pages/2_Report.py", label="📄 分析報告", icon=None)
-    st.page_link("pages/3_History.py", label="🕘 歷史紀錄", icon=None)
-    st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽", icon=None)
-    st.page_link("pages/8_Risk_Center.py", label="⚠️ 工程風險中心", icon=None)
-    st.page_link("pages/9_Action_Tracker.py", label="✅ 跟進事項中心", icon=None)
-    st.page_link("pages/6_Memory_Manager.py", label="🧠 工程記憶管理", icon=None)
-    st.page_link("pages/4_About.py", label="ℹ️ 關於 Buildway Tech", icon=None)
+    render_navigation_links()
     st.markdown("---")
     st.markdown("""
     <div style="font-size:0.78rem; color:#aac4e0; padding: 0.5rem 0;">
@@ -204,11 +195,15 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-# ── CTA Button ────────────────────────────────────────────────────────────────
-col_l, col_c, col_r = st.columns([1, 2, 1])
-with col_c:
-    if st.button("📤 開始上載分析", type="primary", use_container_width=True):
-        st.switch_page("pages/1_Upload.py")
+# ── Primary workflows ─────────────────────────────────────────────────────────
+st.markdown("### 立即開始")
+quick_upload, quick_ask, quick_records = st.columns(3)
+with quick_upload:
+    st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
+with quick_ask:
+    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
+with quick_records:
+    st.page_link("pages/11_Records.py", label="🗂️ 查看地盤記錄", use_container_width=True)
 
 st.markdown("<br/>", unsafe_allow_html=True)
 

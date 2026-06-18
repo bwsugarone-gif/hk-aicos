@@ -22,6 +22,8 @@ except ImportError:
 from utils.analysis_models import KnowledgeSnippet, QAResponse, SearchResult
 from utils.knowledge_search import search_local_knowledge
 from utils.llm_answer_client import answer_question
+from utils.logo_helper import sidebar_logo
+from utils.navigation import render_navigation_links
 from utils.official_sources import (
     SOURCE_MODES,
     SOURCE_MODE_LABELS_ZH,
@@ -72,14 +74,24 @@ def _group_sources_by_trust(sources: list[dict]) -> list[tuple[str, list[dict]]]
     return ordered
 
 
+def _short_snippet(value: object, limit: int = 280) -> str:
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 with st.sidebar:
-    st.page_link("app.py", label="🏠 首頁")
-    st.page_link("pages/1_Upload.py", label="📤 上載分析")
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS")
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄")
+    sidebar_logo()
+    st.markdown("---")
+    render_navigation_links()
 
 st.title("問 AICOS")
 st.caption("毋須上載圖片：直接查詢安全、法例、施工方法、物料、文件及既有地盤記錄。")
+
+quick_upload, quick_records = st.columns(2)
+with quick_upload:
+    st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
+with quick_records:
+    st.page_link("pages/11_Records.py", label="🗂️ 查看地盤記錄", use_container_width=True)
 
 if st.button("清除／重設", key="clear_ask_aicos"):
     for key in ("ask_question", "ask_result", "ask_local_sources", "ask_web_sources", "ask_web_status", "ask_saved_record_id"):
@@ -171,35 +183,39 @@ if result:
     st.divider()
     if web_status:
         provider = str(web_status.get("provider") or "fallback")
-        provider_label = {"tavily": "Tavily", "brave": "Brave Search", "fallback": "後備模式"}.get(
-            provider, provider
-        )
         if web_status.get("error"):
-            st.error(f"{provider_label} 已設定，但網上搜尋失敗：{web_status['error']}")
-            st.info("即時網上搜尋未有完成；AICOS 只會使用本機知識庫、已儲存記錄或本機後備規則。")
+            st.warning("搜尋失敗，已使用備援")
         elif web_status.get("fallback_used"):
-            st.info("未設定 Tavily 或 Brave Search；即時網上搜尋未有執行，目前只使用可用的本機資料。")
+            st.info("未設定網上搜尋")
         else:
-            st.success(f"{provider_label} 已設定，並已完成即時網上搜尋。")
+            provider_label = {"tavily": "Tavily 已連接", "brave": "Brave 已連接"}.get(
+                provider, f"{provider} 已連接"
+            )
+            st.success(provider_label)
 
-        st.markdown("**實際搜尋字串**")
-        st.code(web_status.get("searched_query") or "（沒有搜尋字串）", language=None)
         count_official, count_trusted, count_general = st.columns(3)
         count_official.metric("香港官方來源", int(web_status.get("official_results_count") or 0))
         count_trusted.metric("可信行業來源", int(web_status.get("trusted_results_count") or 0))
         count_general.metric("一般網上來源", int(web_status.get("general_results_count") or 0))
 
+        with st.expander("搜尋詳情", expanded=False):
+            st.markdown("**實際搜尋字串**")
+            st.code(web_status.get("searched_query") or "（沒有搜尋字串）", language=None)
+            if web_status.get("error"):
+                st.caption(str(web_status["error"]))
+
         web_results = st.session_state.get("ask_web_sources", [])
         if web_results:
             st.markdown("#### 網上搜尋結果（按可信程度分類）")
             for trust, sources in _group_sources_by_trust(web_results):
-                st.markdown(f"##### {TRUST_LABELS_ZH.get(trust, TRUST_LABELS_ZH['unknown'])}")
-                for source in sources:
-                    title = source.get("title", "未命名搜尋結果")
-                    url = source.get("url", "")
-                    st.markdown(f"- [{title}]({url})" if url else f"- **{title}**")
-                    if source.get("snippet"):
-                        st.caption(source["snippet"])
+                trust_label = TRUST_LABELS_ZH.get(trust, TRUST_LABELS_ZH["unknown"])
+                with st.expander(f"{trust_label}（{len(sources)}）", expanded=trust == "official_hk"):
+                    for source in sources:
+                        title = source.get("title", "未命名搜尋結果")
+                        url = source.get("url", "")
+                        st.markdown(f"- [{title}]({url})" if url else f"- **{title}**")
+                        if source.get("snippet"):
+                            st.caption(_short_snippet(source["snippet"]))
 
     if result["question_type"] in {"safety", "law_regulation"}:
         st.warning("安全／法例資料必須以香港官方最新版本及合資格人士意見作最終核實；此回覆並非正式法律意見。")
@@ -243,7 +259,7 @@ if result:
             else:
                 st.markdown(f"**{title}**" + (f"  ·  `{path}`" if path else ""))
             if source.get("snippet"):
-                st.caption(source["snippet"])
+                st.caption(_short_snippet(source["snippet"]))
 
     if st.session_state.get("ask_saved_record_id"):
         st.success(f"已儲存記錄：{st.session_state['ask_saved_record_id']}")
