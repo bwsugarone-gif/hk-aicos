@@ -24,7 +24,7 @@ from utils.analysis_models import KnowledgeSnippet
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context, list_source_items
-from utils.llm_answer_client import answer_question
+from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.official_sources import SOURCE_MODE_LABELS_ZH, default_source_mode, source_id_for
@@ -163,13 +163,15 @@ with ask_col:
                 st.session_state.pop("ask_web_status", None)
 
             with st.spinner("AICOS 正在整理現場建議及來源…"):
-                response = answer_question(
-                    quick_question,
-                    question_type,
-                    search_scope,
-                    [*local_contexts, *web_contexts],
+                response, recovered_from_error = safe_answer_question(
+                    question=quick_question,
+                    question_type=question_type,
+                    search_scope=search_scope,
+                    context_snippets=[*local_contexts, *web_contexts],
                     answer_mode=answer_mode,
                 )
+            if recovered_from_error:
+                st.warning("AICOS 暫時未能使用部分搜尋內容，已改用安全的本機後備答案。")
             response_data = response.to_dict()
             st.session_state["workspace_quick_result"] = response_data
             st.session_state["ask_result"] = {

@@ -38,6 +38,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# AICOS Workspace is the daily entry point.  Keep this lightweight redirect in
+# the root script so direct page routes continue to work unchanged.
+st.switch_page("pages/0_AICOS_Workspace.py")
+
 # ── 全域 CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>

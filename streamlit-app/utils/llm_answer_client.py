@@ -20,6 +20,7 @@ from .source_reference_extractor import (
 
 
 SAFETY_TYPES = {"safety", "law_regulation"}
+UNCONFIRMED_REFERENCE_NOTICE = "未能從目前來源確認具體章節，請以官方 PDF 原文為準。"
 
 
 def answer_question(
@@ -58,6 +59,45 @@ def answer_question(
         response.model_name = f"local-fallback ({provider_name} error)"
         response.answer += f"\n\n> AI 供應商暫時未能回應（{type(exc).__name__}），以上為本機後備結果。"
         return response
+
+
+def safe_answer_question(
+    question: str,
+    question_type: str,
+    search_scope: str,
+    context_snippets: Iterable[KnowledgeSnippet | SearchResult | dict[str, Any]] | None = None,
+    answer_mode: str = DEFAULT_ANSWER_MODE,
+) -> tuple[QAResponse, bool]:
+    """Run the supported answer API and recover safely from integration errors.
+
+    The boolean is true only when an unexpected integration/runtime error made
+    the wrapper discard contexts and use the deterministic local fallback.
+    Provider failures remain handled transparently inside ``answer_question``.
+    """
+    try:
+        contexts = list(context_snippets or [])[:15]
+    except (TypeError, ValueError):
+        contexts = []
+    try:
+        response = answer_question(
+            question=question,
+            question_type=question_type,
+            search_scope=search_scope,
+            context_snippets=contexts,
+            answer_mode=answer_mode,
+        )
+        return response, False
+    except Exception:
+        return (
+            _fallback_answer(
+                str(question or "").strip(),
+                question_type,
+                search_scope,
+                [],
+                normalize_answer_mode(answer_mode),
+            ),
+            True,
+        )
 
 
 def _select_provider() -> tuple[str, str, str] | None:
@@ -364,8 +404,10 @@ def _source_reference_lines(contexts: list[Any], question: str, limit: int) -> l
     trusted = [reference for reference in references if reference.trust_level == "trusted_industry"]
     selected = (official or trusted)[:limit]
     if not selected:
-        return ["目前未能確認官方章節來源，請以官方文件及安全主任／合資格人士覆核為準。"]
+        return [UNCONFIRMED_REFERENCE_NOTICE]
     lines = [format_source_reference(reference) for reference in selected]
+    if not any(any((reference.chapter, reference.section, reference.clause, reference.paragraph, reference.page)) for reference in selected):
+        lines[0] += f"；{UNCONFIRMED_REFERENCE_NOTICE}"
     if not official:
         lines[0] += "；目前未能確認香港官方章節來源，請再以官方文件覆核。"
     return lines[:limit]

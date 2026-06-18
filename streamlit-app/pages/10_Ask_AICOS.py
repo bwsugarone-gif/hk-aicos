@@ -23,7 +23,7 @@ from utils.analysis_models import KnowledgeSnippet, QAResponse, SearchResult
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context
-from utils.llm_answer_client import answer_question
+from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.official_sources import (
@@ -112,6 +112,7 @@ if st.button("清除／重設", key="clear_ask_aicos"):
         "ask_project_id",
         "ask_remember_answer",
         "ask_memory_id",
+        "ask_answer_recovered",
         "ask_result",
         "ask_local_sources",
         "ask_web_sources",
@@ -215,7 +216,14 @@ if submitted:
 
         contexts = [*local_sources, *record_sources, *web_sources]
         with st.spinner("AICOS 正在整理資料及建立現場建議…"):
-            response = answer_question(question, question_type, search_scope, contexts, answer_mode=answer_mode)
+            response, recovered_from_error = safe_answer_question(
+                question=question,
+                question_type=question_type,
+                search_scope=search_scope,
+                context_snippets=contexts,
+                answer_mode=answer_mode,
+            )
+        st.session_state["ask_answer_recovered"] = recovered_from_error
         st.session_state["ask_result"] = {
             "question": question,
             "question_type": question_type,
@@ -257,6 +265,8 @@ if result:
     st.divider()
     st.subheader("AICOS 回覆")
     st.markdown(response_data["answer"])
+    if st.session_state.get("ask_answer_recovered"):
+        st.warning("AICOS 暫時未能使用部分搜尋內容，已改用安全的本機後備答案。")
     if st.session_state.get("ask_memory_id"):
         st.success(f"已儲存 AICOS 問答記憶：{st.session_state['ask_memory_id']}")
 
@@ -282,7 +292,7 @@ if result:
         for reference in official_references[:3]:
             st.markdown(f"- {format_source_reference(reference)}")
     else:
-        st.caption("目前未能確認官方章節來源，請以官方文件及安全主任／合資格人士覆核為準。")
+        st.caption("未能從目前來源確認具體章節，請以官方 PDF 原文為準。")
 
     if web_status:
         with st.expander("網上搜尋狀態與統計", expanded=False):
