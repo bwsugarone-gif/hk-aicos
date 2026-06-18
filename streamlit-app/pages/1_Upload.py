@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 import sys
 import os
+import hashlib
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -57,6 +58,8 @@ from utils.project_manager import (
 )
 from utils.action_manager import auto_create_action_from_session, load_action_items
 from utils.image_understanding import process_image_with_understanding
+from utils.site_record_store import save_image_analysis_record
+from utils.vision_client import generate_anthropic_message
 from utils.site_context_engine import (
     analyse_site_context,
     apply_context_risk_to_level,
@@ -208,6 +211,8 @@ with st.sidebar:
     st.markdown("---")
     st.page_link("app.py", label="🏠 首頁")
     st.page_link("pages/1_Upload.py", label="📤 上載分析")
+    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS")
+    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄")
     st.page_link("pages/2_Report.py", label="📄 分析報告")
     st.page_link("pages/3_History.py",   label="🕘 歷史紀錄")
     st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽")
@@ -314,14 +319,31 @@ if uploaded_files:
             ocr_message = fd.get("ocr_message", "")
             ocr_warning = fd.get("ocr_warning", "")
             
-            # Process image understanding for images with OCR
-            if fd["type"] == "image" and fd.get("ocr_used"):
+            # Reusable OCR/vision/classification pipeline. Local fallback always works.
+            if fd["type"] == "image":
                 try:
-                    understanding_result = process_image_with_understanding(fd)
+                    image_bytes = uf.getvalue()
+                    cache_key = hashlib.sha256(image_bytes).hexdigest()
+                    analysis_cache = st.session_state.setdefault("_image_analysis_cache", {})
+                    understanding_result = analysis_cache.get(cache_key)
+                    if understanding_result is None:
+                        vision_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+                        if not vision_key:
+                            try:
+                                vision_key = str(st.secrets.get("ANTHROPIC_API_KEY", "")).strip()
+                            except Exception:
+                                vision_key = ""
+                        understanding_result = process_image_with_understanding(
+                            fd,
+                            anthropic_api_key=vision_key,
+                        )
+                        analysis_cache[cache_key] = understanding_result
                     fd["image_understanding"] = understanding_result
+                    fd["image_analysis"] = understanding_result.get("analysis_result", {})
                 except Exception as img_err:
                     print(f"[Image Understanding] WARNING: {img_err}", file=sys.stderr)
                     fd["image_understanding"] = None
+                    fd["image_analysis"] = None
             
             if fd["type"] == "image":
                 col1, col2 = st.columns([1, 2])
@@ -361,6 +383,34 @@ if uploaded_files:
                     
                     elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
                         st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
+
+                    analysis_data = fd.get("image_analysis") or {}
+                    if analysis_data:
+                        category = analysis_data.get("detected_category", "unknown")
+                        confidence = float(analysis_data.get("confidence", 0.0) or 0.0)
+                        st.info(f"圖片分類：**{category}** · 信心度 {confidence:.0%}")
+                        with st.expander("🔎 AICOS 圖片分析及跟進建議"):
+                            for observation in analysis_data.get("key_observations", []):
+                                st.markdown(f"- {observation}")
+                            for risk in analysis_data.get("risks", []):
+                                st.warning(risk)
+                            for suggestion in analysis_data.get("recommended_followups", []):
+                                st.markdown(
+                                    f"**[{suggestion.get('priority', 'low').upper()}] {suggestion.get('title', '')}**  \n"
+                                    f"{suggestion.get('action', '')}  \n"
+                                    f"負責：{suggestion.get('responsible_role', '')} · 時限：{suggestion.get('due_hint', '')}"
+                                )
+
+                        saved_images = st.session_state.setdefault("_saved_image_records", {})
+                        if cache_key in saved_images:
+                            st.success(f"已儲存地盤記錄：{saved_images[cache_key]}")
+                        elif st.button("儲存圖片分析記錄", key=f"save_image_record_{cache_key}"):
+                            saved_record = save_image_analysis_record(
+                                analysis_data,
+                                filename=uf.name,
+                            )
+                            saved_images[cache_key] = saved_record.record_id
+                            st.rerun()
             elif fd["type"] == "pdf":
                 st.success(f"✅ PDF 已載入：{uf.name}")
                 if ocr_status == "OCR_SUCCESS":
@@ -794,36 +844,15 @@ if generate_btn:
                     analysis_result = response.choices[0].message.content
 
                 else:
-                    # Anthropic (default)
-                    import anthropic
-                    client = anthropic.Anthropic(api_key=api_key)
-
+                    # Anthropic text/vision call is isolated in the reusable client.
+                    image_path = None
                     if file_data_to_use and file_data_to_use["type"] == "image":
-                        import base64
-                        with open(file_data_to_use["path"], "rb") as img_file:
-                            img_b64 = base64.standard_b64encode(img_file.read()).decode()
-                        ext = file_data_to_use["path"].suffix.lower()
-                        media_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else "image/png"
-                        message = client.messages.create(
-                            model="claude-opus-4-5",
-                            max_tokens=4096,
-                            temperature=0,
-                            messages=[{
-                                "role": "user",
-                                "content": [
-                                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
-                                    {"type": "text", "text": full_prompt},
-                                ],
-                            }],
-                        )
-                    else:
-                        message = client.messages.create(
-                            model="claude-opus-4-5",
-                            max_tokens=4096,
-                            temperature=0,
-                            messages=[{"role": "user", "content": full_prompt}],
-                        )
-                    analysis_result = message.content[0].text
+                        image_path = file_data_to_use["path"]
+                    analysis_result = generate_anthropic_message(
+                        full_prompt,
+                        api_key=api_key,
+                        image_path=image_path,
+                    )
 
                 # Classify risk, then calibrate with Agent risk weights
                 original_risk_level = classify_risk(selected_type, question, analysis_result)

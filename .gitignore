@@ -7,6 +7,7 @@
 __pycache__/
 *.py[cod]
 *.pyo
+.pytest_cache/
 .venv/
 venv/
 env/
@@ -26,6 +27,14 @@ streamlit-app/reports/*.pdf
 streamlit-app/projects/*
 !streamlit-app/projects/.gitkeep
 streamlit-app/data/action_items_backup_*.json
+streamlit-app/data/site_records.jsonl
+streamlit-app/data/*.jsonl
+streamlit-app/logs/*.log
+streamlit-app/reports/*.html
+output/playwright/
+screenshots/
+*.tmp
+syntax_check.txt
 
 # OS
 .DS_Store

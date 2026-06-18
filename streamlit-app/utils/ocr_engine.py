@@ -13,6 +13,8 @@ from typing import Any
 import pypdf
 from PIL import Image
 
+from .analysis_models import OCRResult
+
 
 MAX_OCR_PDF_PAGES = 20
 OCR_UNAVAILABLE_MESSAGE = "OCR 功能暫未可用，請提供可選取文字的 PDF。"
@@ -228,3 +230,44 @@ def extract_text_from_bytes_with_ocr(file_bytes: bytes, filename: str) -> dict[s
         except Exception:
             pass
 
+
+def to_ocr_result(result: dict[str, Any] | OCRResult | None) -> OCRResult:
+    """Convert the legacy OCR dictionary into the shared typed model."""
+    if isinstance(result, OCRResult):
+        return result
+    result = dict(result or {})
+    status = str(result.get("ocr_status", "NOT_ATTEMPTED"))
+    confidence_by_status = {
+        "SELECTABLE_TEXT": 0.98,
+        "OCR_SUCCESS": 0.72,
+        "OCR_FAILED": 0.0,
+        "OCR_UNAVAILABLE": 0.0,
+        "UNSUPPORTED_FILE_TYPE": 0.0,
+    }
+    text = str(result.get("extracted_text") or result.get("text") or "").strip()
+    metadata = {
+        key: value
+        for key, value in result.items()
+        if key not in {"extracted_text", "text", "selectable_text"}
+    }
+    return OCRResult(
+        text=text,
+        confidence=confidence_by_status.get(status, 0.45 if text else 0.0),
+        engine="pypdf" if status == "SELECTABLE_TEXT" else "tesseract_local",
+        language="eng+chi_tra",
+        metadata=metadata,
+    )
+
+
+def run_ocr(file_path: str | Path) -> OCRResult:
+    """Run local OCR and always return a non-throwing structured result."""
+    try:
+        return to_ocr_result(extract_text_with_ocr(Path(file_path)))
+    except Exception as exc:  # final safety net for optional native OCR dependencies
+        return OCRResult(
+            engine="local_ocr",
+            metadata={
+                "ocr_status": "OCR_FAILED",
+                "warning": f"{type(exc).__name__}: {exc}",
+            },
+        )

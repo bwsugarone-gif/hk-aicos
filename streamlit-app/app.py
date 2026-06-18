@@ -159,6 +159,8 @@ with st.sidebar:
     st.markdown("")
     st.page_link("app.py", label="🏠 首頁", icon=None)
     st.page_link("pages/1_Upload.py", label="📤 上載分析", icon=None)
+    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", icon=None)
+    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄", icon=None)
     st.page_link("pages/2_Report.py", label="📄 分析報告", icon=None)
     st.page_link("pages/3_History.py", label="🕘 歷史紀錄", icon=None)
     st.page_link("pages/7_Project_Dashboard.py", label="📊 工程總覽", icon=None)
