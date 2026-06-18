@@ -64,6 +64,7 @@ from utils.project_manager import (
 )
 from utils.action_manager import auto_create_action_from_session, load_action_items
 from utils.image_understanding import process_image_with_understanding
+from utils.site_memory import save_memory_item
 from utils.site_record_store import save_image_analysis_record
 from utils.vision_client import generate_anthropic_message
 from utils.site_context_engine import (
@@ -411,6 +412,18 @@ if uploaded_files:
                             saved_record = save_image_analysis_record(
                                 analysis_data,
                                 filename=uf.name,
+                            )
+                            observations = analysis_data.get("key_observations") or []
+                            risks = analysis_data.get("risks") or []
+                            save_memory_item(
+                                memory_type="issue_memory" if risks else "followup_memory",
+                                title=f"圖片分析：{uf.name}",
+                                summary="；".join(observations[:3]) or "圖片分析已完成，等待人工覆核。",
+                                tags=[str(category), "image_analysis"],
+                                related_record_ids=[saved_record.record_id],
+                                risk_level="high" if risks else "low",
+                                status="open",
+                                raw_payload={"filename": uf.name, "analysis": analysis_data},
                             )
                             saved_images[cache_key] = saved_record.record_id
                             st.rerun()

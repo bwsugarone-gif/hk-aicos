@@ -197,7 +197,9 @@ else:
 
 # ── Primary workflows ─────────────────────────────────────────────────────────
 st.markdown("### 立即開始")
-quick_upload, quick_ask, quick_records = st.columns(3)
+quick_workspace, quick_upload, quick_ask, quick_records = st.columns(4)
+with quick_workspace:
+    st.page_link("pages/0_AICOS_Workspace.py", label="🏗️ AICOS 工作台", use_container_width=True)
 with quick_upload:
     st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
 with quick_ask:

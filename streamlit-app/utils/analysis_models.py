@@ -114,6 +114,22 @@ class SourceCitation(SerializableModel):
 
 
 @dataclass
+class SourceReference(SerializableModel):
+    source_id: str
+    title: str
+    trust_level: str = "unknown"
+    url: str = ""
+    document_title: str = ""
+    chapter: str = ""
+    section: str = ""
+    clause: str = ""
+    paragraph: str = ""
+    page: str = ""
+    excerpt: str = ""
+    reference_confidence: float = 0.0
+
+
+@dataclass
 class QAResponse(SerializableModel):
     answer: str
     practical_recommendations: list[str] = field(default_factory=list)

@@ -10,7 +10,7 @@ LANGUAGE_KEY = "aicos_navigation_language"
 LANGUAGE_WIDGET_KEY = "_aicos_navigation_language_widget"
 
 PRIMARY_PAGES = (
-    ("home", "app.py"),
+    ("workspace", "pages/0_AICOS_Workspace.py"),
     ("upload", "pages/1_Upload.py"),
     ("ask", "pages/10_Ask_AICOS.py"),
     ("records", "pages/11_Records.py"),
@@ -22,6 +22,7 @@ PRIMARY_PAGES = (
 )
 
 SECONDARY_PAGES = (
+    ("home", "app.py"),
     ("memory", "pages/6_Memory_Manager.py"),
     ("translate", "pages/5_Translate.py"),
     ("about", "pages/4_About.py"),
@@ -31,6 +32,7 @@ _LABELS = {
     "zh": {
         "section": "主要功能",
         "more": "更多工具",
+        "workspace": "🏗️ AICOS 工作台",
         "home": "🏠 首頁",
         "upload": "📤 上載分析",
         "ask": "💬 問 AICOS",
@@ -47,6 +49,7 @@ _LABELS = {
     "en": {
         "section": "Primary workflows",
         "more": "More tools",
+        "workspace": "🏗️ AICOS Workspace",
         "home": "🏠 Home",
         "upload": "📤 Upload Analysis",
         "ask": "💬 Ask AICOS",
