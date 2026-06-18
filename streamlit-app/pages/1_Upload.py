@@ -232,6 +232,14 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Keep the two Phase 5 workflows visible even when the sidebar is collapsed.
+st.caption("AICOS 快捷功能")
+quick_ask, quick_records = st.columns(2)
+with quick_ask:
+    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
+with quick_records:
+    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄", use_container_width=True)
+
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
 MAX_FILES = 3
 MAX_TOTAL_SIZE_MB = 50

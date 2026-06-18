@@ -24,7 +24,10 @@ def answer_question(
 ) -> QAResponse:
     """Answer through the existing core provider router when configured, else locally."""
     question = str(question or "").strip()
-    contexts = list(context_snippets or [])[:10]
+    # Ask AICOS supplies at most five local, five record, and five web items.
+    # Keep all three groups available so web snippets cannot be truncated in
+    # the "all" scope before the provider sees them.
+    contexts = list(context_snippets or [])[:15]
     if not question:
         return QAResponse(
             answer="請先輸入具體工程問題。",
@@ -165,6 +168,7 @@ def _parse_provider_answer(
 def _fallback_answer(question: str, question_type: str, search_scope: str, contexts: list[Any]) -> QAResponse:
     sources = _context_citations(contexts, {_source_id(contexts[0])} if contexts else set())
     context_preview = _first_context_preview(contexts)
+    has_web_context = any(citation_from_source(item).source_url for item in contexts)
     if context_preview:
         answer = (
             "目前使用本機後備模式，未有調用外部 LLM。已找到相關本機／已提供資料，"
@@ -178,7 +182,10 @@ def _fallback_answer(question: str, question_type: str, search_scope: str, conte
         )
         confidence = 0.3
     if question_type in SAFETY_TYPES:
-        answer += " 本回答未有即時連線至香港官方網站核實。安全及法例資料須向官方來源及合資格人士核實；本回覆並非正式法律意見。"
+        if has_web_context:
+            answer += " 已提供的網上搜尋資料仍須按香港官方最新版本及由合資格人士核實；本回覆並非正式法律意見。"
+        else:
+            answer += " 本回答未有即時連線至香港官方網站核實。安全及法例資料須向官方來源及合資格人士核實；本回覆並非正式法律意見。"
     if not contexts:
         sources = [
             SourceCitation(

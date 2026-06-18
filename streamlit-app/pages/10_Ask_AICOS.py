@@ -19,7 +19,7 @@ try:
 except ImportError:
     pass
 
-from utils.analysis_models import KnowledgeSnippet, QAResponse
+from utils.analysis_models import KnowledgeSnippet, QAResponse, SearchResult
 from utils.knowledge_search import search_local_knowledge
 from utils.llm_answer_client import answer_question
 from utils.official_sources import (
@@ -29,8 +29,9 @@ from utils.official_sources import (
     default_source_mode,
     source_id_for,
 )
+from utils.search_query_builder import build_hk_official_query
 from utils.site_record_store import SiteRecordStore, save_qa_session_record
-from utils.web_search_adapter import get_web_search_status, web_search
+from utils.web_search_adapter import web_search
 
 
 st.set_page_config(page_title="問 AICOS", page_icon="💬", layout="wide")
@@ -50,6 +51,25 @@ SEARCH_SCOPES = {
     "web_search": "網上搜尋",
     "all": "全部來源",
 }
+TRUST_DISPLAY_ORDER = (
+    "official_hk",
+    "trusted_industry",
+    "local_internal",
+    "uploaded_record",
+    "general_web",
+    "unknown",
+    "fallback_only",
+)
+
+
+def _group_sources_by_trust(sources: list[dict]) -> list[tuple[str, list[dict]]]:
+    grouped: dict[str, list[dict]] = {}
+    for source in sources:
+        if isinstance(source, dict):
+            grouped.setdefault(str(source.get("trust_level") or "unknown"), []).append(source)
+    ordered = [(trust, grouped.pop(trust)) for trust in TRUST_DISPLAY_ORDER if trust in grouped]
+    ordered.extend(sorted(grouped.items()))
+    return ordered
 
 
 with st.sidebar:
@@ -102,7 +122,7 @@ if submitted:
     else:
         local_sources: list[KnowledgeSnippet] = []
         record_sources: list[KnowledgeSnippet] = []
-        web_sources = []
+        web_sources: list[SearchResult] = []
         if search_scope in {"local_knowledge", "all"}:
             local_sources = search_local_knowledge(question, limit=5)
         if search_scope in {"uploaded_records", "all"}:
@@ -120,9 +140,10 @@ if submitted:
                     )
                 )
         if search_scope in {"web_search", "all"}:
-            web_sources = web_search(question, limit=5, source_mode=source_mode)
-            web_status = get_web_search_status()
-            st.session_state["ask_web_status"] = web_status.__dict__
+            searched_query = build_hk_official_query(question, question_type, source_mode)
+            web_response = web_search(searched_query, limit=5, mode=source_mode)
+            web_sources = web_response.results
+            st.session_state["ask_web_status"] = web_response.to_dict()
         else:
             st.session_state.pop("ask_web_status", None)
 
@@ -148,12 +169,42 @@ if result:
     trust_levels = {item.get("trust_level", "unknown") for item in source_data if isinstance(item, dict)}
     web_status = st.session_state.get("ask_web_status")
     st.divider()
+    if web_status:
+        provider = str(web_status.get("provider") or "fallback")
+        provider_label = {"tavily": "Tavily", "brave": "Brave Search", "fallback": "後備模式"}.get(
+            provider, provider
+        )
+        if web_status.get("error"):
+            st.error(f"{provider_label} 已設定，但網上搜尋失敗：{web_status['error']}")
+            st.info("即時網上搜尋未有完成；AICOS 只會使用本機知識庫、已儲存記錄或本機後備規則。")
+        elif web_status.get("fallback_used"):
+            st.info("未設定 Tavily 或 Brave Search；即時網上搜尋未有執行，目前只使用可用的本機資料。")
+        else:
+            st.success(f"{provider_label} 已設定，並已完成即時網上搜尋。")
+
+        st.markdown("**實際搜尋字串**")
+        st.code(web_status.get("searched_query") or "（沒有搜尋字串）", language=None)
+        count_official, count_trusted, count_general = st.columns(3)
+        count_official.metric("香港官方來源", int(web_status.get("official_results_count") or 0))
+        count_trusted.metric("可信行業來源", int(web_status.get("trusted_results_count") or 0))
+        count_general.metric("一般網上來源", int(web_status.get("general_results_count") or 0))
+
+        web_results = st.session_state.get("ask_web_sources", [])
+        if web_results:
+            st.markdown("#### 網上搜尋結果（按可信程度分類）")
+            for trust, sources in _group_sources_by_trust(web_results):
+                st.markdown(f"##### {TRUST_LABELS_ZH.get(trust, TRUST_LABELS_ZH['unknown'])}")
+                for source in sources:
+                    title = source.get("title", "未命名搜尋結果")
+                    url = source.get("url", "")
+                    st.markdown(f"- [{title}]({url})" if url else f"- **{title}**")
+                    if source.get("snippet"):
+                        st.caption(source["snippet"])
+
     if result["question_type"] in {"safety", "law_regulation"}:
         st.warning("安全／法例資料必須以香港官方最新版本及合資格人士意見作最終核實；此回覆並非正式法律意見。")
-    if web_status and not web_status.get("performed"):
-        st.info("網上搜尋未有執行：" + web_status.get("message", "尚未設定網上搜尋供應商。"))
     if response_data.get("fallback_used"):
-        st.warning("目前使用本機後備模式；答案未經即時官方網頁核實。")
+        st.warning("目前使用本機回答後備模式；即使找到網上資料，答案仍須由合資格人士及最新官方文件覆核。")
     if result["question_type"] == "law_regulation" and "official_hk" not in trust_levels:
         st.error("本次沒有找到香港官方來源。作出合規或法律決定前，請查閱香港法例電子版或相關政府部門最新資料。")
     if result["question_type"] == "safety" and not trust_levels.intersection({"official_hk", "trusted_industry"}):
@@ -179,20 +230,20 @@ if result:
     st.markdown("#### 回答來源及可信程度")
     if not source_data:
         st.caption("本次沒有可顯示的來源。")
-    for source in source_data:
-        trust = source.get("trust_level", "unknown")
-        trust_label = TRUST_LABELS_ZH.get(trust, TRUST_LABELS_ZH["unknown"])
-        used_label = "已用於回答" if source.get("used_in_answer") else "參考資料（未聲稱引用）"
-        title = source.get("source_title", "未命名來源")
-        url = source.get("source_url", "")
-        path = source.get("source_path", "")
-        st.markdown(f"**{trust_label} · {used_label}**")
-        if url:
-            st.markdown(f"[{title}]({url})")
-        else:
-            st.markdown(f"**{title}**" + (f"  ·  `{path}`" if path else ""))
-        if source.get("snippet"):
-            st.caption(source["snippet"])
+    for trust, sources in _group_sources_by_trust(source_data):
+        st.markdown(f"##### {TRUST_LABELS_ZH.get(trust, TRUST_LABELS_ZH['unknown'])}")
+        for source in sources:
+            used_label = "已用於回答" if source.get("used_in_answer") else "參考資料（未聲稱引用）"
+            title = source.get("source_title", "未命名來源")
+            url = source.get("source_url", "")
+            path = source.get("source_path", "")
+            st.markdown(f"**{used_label}**")
+            if url:
+                st.markdown(f"[{title}]({url})")
+            else:
+                st.markdown(f"**{title}**" + (f"  ·  `{path}`" if path else ""))
+            if source.get("snippet"):
+                st.caption(source["snippet"])
 
     if st.session_state.get("ask_saved_record_id"):
         st.success(f"已儲存記錄：{st.session_state['ask_saved_record_id']}")
