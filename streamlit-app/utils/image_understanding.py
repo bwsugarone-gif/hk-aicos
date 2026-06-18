@@ -6,9 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .analysis_models import ImageAnalysisResult, OCRResult
+from .analysis_models import ImageAnalysisResult, ImageCategory, OCRResult
 from .followup_generator import generate_followups
 from .image_classifier import classify_image
+from .image_safety_hardening import HOT_WORK_CATEGORIES, filter_unsupported_assumptions
 from .ocr_engine import run_ocr, to_ocr_result
 from .vision_client import SUPPORTED_IMAGE_TYPES, analyze_image_with_vision
 
@@ -96,26 +97,62 @@ def analyze_image(
     )
     extracted_text = ocr_result.text or str(vision.get("extracted_text") or "").strip()
     structured = extract_structured_info(extracted_text)
+    manual_context = " ".join(
+        str(value or "")
+        for value in (
+            getattr(path, "name", ""),
+            (ocr_data or {}).get("filename") if isinstance(ocr_data, dict) else "",
+            (ocr_data or {}).get("manual_context") if isinstance(ocr_data, dict) else "",
+            (ocr_data or {}).get("question") if isinstance(ocr_data, dict) else "",
+        )
+    )
     category, category_confidence = classify_image(
         extracted_text,
         vision,
         has_supported_image=supported_image or ocr_data is not None,
+        manual_context=manual_context,
     )
 
-    observations = _local_observations(structured, extracted_text)
-    observations = _dedupe(observations + _string_list(vision.get("observations")))[:8]
-    risks = _local_risks(structured)
-    risks = _dedupe(risks + _string_list(vision.get("risks")))[:8]
+    evidence_items = _string_list(vision.get("evidence_items"))
+    raw_observations = _dedupe(_local_observations(structured, extracted_text) + _string_list(vision.get("observations")))
+    raw_risks = _dedupe(_local_risks(structured) + _string_list(vision.get("risks")))
+    explicit_context = " ".join((extracted_text, manual_context))
+    observations, unsupported_observations = filter_unsupported_assumptions(
+        raw_observations,
+        evidence_items,
+        explicit_context,
+    )
+    risks, unsupported_risks = filter_unsupported_assumptions(raw_risks, evidence_items, explicit_context)
+    unsupported = _dedupe(
+        _string_list(vision.get("unsupported_assumptions"))
+        + unsupported_observations
+        + unsupported_risks
+    )
+
+    if category.value in HOT_WORK_CATEGORIES:
+        signal_text = " ".join([*evidence_items, *observations, *risks, explicit_context]).lower()
+        hot_observations, hot_risks = _hot_work_findings(signal_text, bool(vision.get("performed")))
+        observations = _dedupe(hot_observations + observations)[:8]
+        risks = _dedupe(hot_risks + risks)[:8]
+
+    if not evidence_items:
+        evidence_items = _confirmed_evidence(observations)
     followups = generate_followups(category, observations, risks)
 
     engines = [ocr_result.engine]
     if vision.get("performed") and vision.get("status") == "success":
         engines.append("anthropic_vision")
-    confidence = max(category_confidence, ocr_result.confidence * 0.8)
+    visual_confidence = round(min(1.0, category_confidence), 2)
+    needs_manual_review = bool(
+        vision.get("needs_manual_review")
+        or not (vision.get("performed") and vision.get("status") == "success")
+        or visual_confidence < 0.65
+        or unsupported
+    )
     return ImageAnalysisResult(
         extracted_text=extracted_text,
         detected_category=category,
-        confidence=round(min(1.0, confidence), 2),
+        confidence=visual_confidence,
         key_observations=observations,
         risks=risks,
         recommended_followups=followups,
@@ -126,6 +163,14 @@ def analyze_image(
             "structured_info": structured,
             "fallback_used": not bool(vision.get("performed") and vision.get("status") == "success"),
         },
+        ocr_text=ocr_result.text,
+        ocr_confidence=round(min(1.0, ocr_result.confidence), 2),
+        visual_confidence=visual_confidence,
+        image_category=category,
+        visual_observations=observations,
+        evidence_items=evidence_items,
+        unsupported_assumptions=unsupported,
+        needs_manual_review=needs_manual_review,
     )
 
 
@@ -141,8 +186,10 @@ def process_image_with_understanding(
         anthropic_api_key=anthropic_api_key,
     )
     structured = analysis.raw_metadata.get("structured_info", _empty_structured_info())
-    context = build_image_text_context(ocr_result, structured)
-    should_elevate, reason = should_elevate_risk(structured)
+    text_context = build_image_text_context(ocr_result, structured)
+    visual_context = build_visual_evidence_context(analysis.to_dict())
+    context = "\n\n".join(part for part in (text_context, visual_context) if part)
+    should_elevate, reason = should_elevate_risk(structured, analysis.to_dict())
     return {
         "ocr_result": ocr_result,
         "structured_info": structured,
@@ -175,7 +222,33 @@ def build_image_text_context(ocr_result: dict[str, Any], structured_info: dict[s
     return "\n".join(lines)
 
 
-def should_elevate_risk(structured_info: dict[str, Any]) -> tuple[bool, str]:
+def build_visual_evidence_context(analysis: dict[str, Any]) -> str:
+    category = str(analysis.get("image_category") or analysis.get("detected_category") or "unknown")
+    observations = _string_list(analysis.get("visual_observations") or analysis.get("key_observations"))
+    evidence_items = _string_list(analysis.get("evidence_items"))
+    unsupported = _string_list(analysis.get("unsupported_assumptions"))
+    lines = [
+        "[IMAGE VISUAL EVIDENCE]",
+        f"圖片分類：{category}",
+        f"視覺分析信心：{float(analysis.get('visual_confidence') or 0):.0%}",
+        "只可把以下可見或明確提供內容寫成已確認事項。",
+    ]
+    lines.extend(f"- {item}" for item in (evidence_items or observations)[:8])
+    if unsupported:
+        lines.append("需確認／不可當作已確認風險：")
+        lines.extend(f"- {item}" for item in unsupported[:8])
+    lines.append("除非上述證據明確支持，禁止加入棚架、高空工作、氣樽、安全帶、護欄或踢腳板。")
+    return "\n".join(lines)
+
+
+def should_elevate_risk(
+    structured_info: dict[str, Any],
+    image_analysis: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    image_analysis = image_analysis or {}
+    category = str(image_analysis.get("image_category") or image_analysis.get("detected_category") or "")
+    if category in HOT_WORK_CATEGORIES:
+        return True, f"視覺分析識別為 {category}，最終風險不得低於中風險。"
     if not structured_info.get("has_safety_concern"):
         return False, ""
     keywords = structured_info.get("safety_keywords_found", [])
@@ -220,8 +293,6 @@ def _local_observations(structured: dict[str, Any], text: str) -> list[str]:
         observations.append("識別編號：" + ", ".join(structured["numbers"]))
     if text and not observations:
         observations.append("已從圖片抽取文字，建議人工核對原圖。")
-    if not text:
-        observations.append("未能抽取可用文字；已保留圖片作人工覆核。")
     return observations
 
 
@@ -240,3 +311,34 @@ def _string_list(value: Any) -> list[str]:
 
 def _dedupe(values: list[str]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
+
+
+def _confirmed_evidence(observations: list[str]) -> list[str]:
+    positive_markers = ("已確認", "清晰可見", "相片可見", "正在", "產生明顯")
+    uncertain_markers = ("未能確認", "可能", "疑似", "需要確認")
+    return [
+        item
+        for item in observations
+        if any(marker in item for marker in positive_markers)
+        and not any(marker in item for marker in uncertain_markers)
+    ][:8]
+
+
+def _hot_work_findings(signal_text: str, vision_performed: bool) -> tuple[list[str], list[str]]:
+    observations = []
+    if any(term in signal_text for term in ("磨機", "角磨", "砂輪", "grinder", "grinding", "切割", "cutting")):
+        prefix = "已確認" if vision_performed else "根據檔名或提供資料判斷"
+        observations.append(f"{prefix}：工人正在使用磨機或切割工具。")
+    if any(term in signal_text for term in ("火花", "sparks", "spark")):
+        prefix = "已確認" if vision_performed else "根據提供資料判斷"
+        observations.append(f"{prefix}：工序產生明顯火花。")
+    if any(term in signal_text for term in ("安全帽", "手套", "長袖", "helmet", "gloves", "long sleeve")):
+        observations.append("已確認：相片可見部分 PPE；眼部及面部保護仍需現場確認。")
+    risks = [
+        "火花可能引燃附近物料或裝修材料。",
+        "火花可能損壞門框、牆身或已完成飾面。",
+        "金屬碎屑或火花可能造成眼部及面部受傷。",
+        "電動工具操作有割傷或反彈風險。",
+        "室內位置的通風及走火通道需要確認。",
+    ]
+    return observations, risks

@@ -62,10 +62,15 @@ def test_image_analysis_contains_required_fields(monkeypatch):
         use_vision=False,
     )
     payload = result.to_dict()
-    assert set(payload) == {
+    assert {
         "extracted_text", "detected_category", "confidence", "key_observations",
         "risks", "recommended_followups", "source_engine", "raw_metadata",
-    }
+    }.issubset(payload)
+    assert {
+        "ocr_text", "ocr_confidence", "visual_confidence", "image_category",
+        "visual_observations", "evidence_items", "unsupported_assumptions",
+        "needs_manual_review",
+    }.issubset(payload)
     assert payload["detected_category"] == "material_delivery"
 
 

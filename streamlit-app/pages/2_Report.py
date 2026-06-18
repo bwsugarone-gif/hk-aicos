@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report, highlight_report_keywords_html
+from utils.image_safety_hardening import build_concise_image_summary
 from utils.site_logic_engine import format_site_logic_for_report
 from utils.progress_tracker import format_progress_for_report
 from utils.delay_concern_engine import format_delay_concern_for_report
@@ -297,6 +298,8 @@ st.markdown('<div class="report-section">', unsafe_allow_html=True)
 st.markdown('<h3>📊 工程分析報告</h3>', unsafe_allow_html=True)
 
 analysis_text = data.get("analysis_result", "")
+_image_analysis = data.get("image_analysis") or {}
+_image_summary = build_concise_image_summary(_image_analysis) if _image_analysis else None
 # 清理任何技術性內容（不應出現在客戶版）
 for tech_phrase in [
     "[示範模式", "[DEMO MODE", "No API Key", "API KEY", "Claude", "Anthropic",
@@ -306,10 +309,30 @@ for tech_phrase in [
         analysis_text = "分析結果暫時未能顯示。請重新進行分析或聯絡 Buildway Tech 取得協助。"
         break
 
-st.markdown(
-    f'<div class="result-content">{highlight_report_keywords_html(analysis_text).replace(chr(10), "<br/>")}</div>',
-    unsafe_allow_html=True,
-)
+if _image_summary:
+    for heading, values in (
+        ("相片所見", _image_summary["observations"]),
+        ("初步風險級別", [_image_summary["risk_level"]]),
+        ("主要風險", _image_summary["risks"]),
+        ("建議", _image_summary["recommendations"]),
+        ("需確認事項", _image_summary["confirmations"]),
+        ("負責跟進", _image_summary["responsible"]),
+        ("來源 / 限制", _image_summary["limitations"]),
+    ):
+        if values:
+            st.markdown(f"#### {heading}")
+            for value in values[:5]:
+                st.markdown(f"- {value}")
+    with st.expander("Agent 詳細分析（附錄）", expanded=False):
+        st.markdown(
+            highlight_report_keywords_html(analysis_text).replace(chr(10), "<br/>"),
+            unsafe_allow_html=True,
+        )
+else:
+    st.markdown(
+        f'<div class="result-content">{highlight_report_keywords_html(analysis_text).replace(chr(10), "<br/>")}</div>',
+        unsafe_allow_html=True,
+    )
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ── 可能涉及部門 ──────────────────────────────────────────────────────────────
@@ -579,7 +602,12 @@ if _progress_result:
         (_tl.get("progress_change") and _tl.get("progress_change") not in ("目前資料不足以判斷實際工期狀況。", ""))
     )
 
-if _has_logic or _has_progress or _has_delay or _timeline_has_data:
+if _image_summary:
+    st.markdown('<div class="report-section">', unsafe_allow_html=True)
+    st.markdown('<h3>工期影響</h3>', unsafe_allow_html=True)
+    st.write("目前未有足夠進度資料，暫不判斷工期影響。")
+    st.markdown('</div>', unsafe_allow_html=True)
+elif _has_logic or _has_progress or _has_delay or _timeline_has_data:
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
     st.markdown('<h3>工程時序分析</h3>', unsafe_allow_html=True)
 
@@ -966,6 +994,7 @@ try:
             site_logic_result=data.get("site_logic_result", {}),
             progress_result=data.get("progress_result", {}),
             delay_concern_result=data.get("delay_concern_result", {}),
+            image_analysis=data.get("image_analysis", {}),
         )
     safe_name = display_name.replace("/", "-").replace(" ", "-")
     st.download_button(

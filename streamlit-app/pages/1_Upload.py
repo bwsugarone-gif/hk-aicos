@@ -64,6 +64,11 @@ from utils.project_manager import (
 )
 from utils.action_manager import auto_create_action_from_session, load_action_items
 from utils.image_understanding import process_image_with_understanding
+from utils.image_safety_hardening import (
+    build_concise_image_summary,
+    merge_credible_risk,
+    sanitize_generated_analysis,
+)
 from utils.site_memory import save_memory_item
 from utils.site_record_store import save_image_analysis_record
 from utils.vision_client import generate_anthropic_message
@@ -331,6 +336,7 @@ if uploaded_files:
                     analysis_cache = st.session_state.setdefault("_image_analysis_cache", {})
                     understanding_result = analysis_cache.get(cache_key)
                     if understanding_result is None:
+                        fd["filename"] = uf.name
                         vision_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
                         if not vision_key:
                             try:
@@ -386,19 +392,37 @@ if uploaded_files:
                                     st.text_area("辨識到的文字", value=preview, height=150, disabled=True)
                     
                     elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
-                        st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
+                        st.info("未偵測到清晰文字；仍可根據相片內容作視覺風險分析。")
 
                     analysis_data = fd.get("image_analysis") or {}
                     if analysis_data:
-                        category = analysis_data.get("detected_category", "unknown")
-                        confidence = float(analysis_data.get("confidence", 0.0) or 0.0)
-                        st.info(f"圖片分類：**{category}** · 信心度 {confidence:.0%}")
-                        with st.expander("🔎 AICOS 圖片分析及跟進建議"):
-                            for observation in analysis_data.get("key_observations", []):
-                                st.markdown(f"- {observation}")
-                            for risk in analysis_data.get("risks", []):
-                                st.warning(risk)
-                            for suggestion in analysis_data.get("recommended_followups", []):
+                        category = analysis_data.get("image_category") or analysis_data.get("detected_category", "unknown")
+                        visual_confidence = float(analysis_data.get("visual_confidence", 0.0) or 0.0)
+                        ocr_text_found = bool(str(analysis_data.get("ocr_text") or "").strip())
+                        st.caption("OCR 文字：" + ("已偵測到文字" if ocr_text_found else "未偵測到清晰文字"))
+                        st.caption("視覺分析：已根據可見內容分析")
+                        st.info(f"圖片分類：**{category}** · 視覺分析信心 {visual_confidence:.0%}")
+                        concise = build_concise_image_summary(analysis_data)
+                        st.markdown("#### 相片所見")
+                        for observation in concise["observations"]:
+                            st.markdown(f"- {observation}")
+                        st.markdown(f"#### 初步風險級別\n**{concise['risk_level']}**")
+                        st.markdown("#### 主要風險")
+                        for risk in concise["risks"]:
+                            st.markdown(f"- {risk}")
+                        st.markdown("#### 建議")
+                        for recommendation in concise["recommendations"]:
+                            st.markdown(f"- {recommendation}")
+                        st.markdown("#### 需確認事項")
+                        for item in concise["confirmations"]:
+                            st.markdown(f"- {item}")
+
+                        with st.expander("🔎 詳細圖片證據及跟進", expanded=False):
+                            for evidence in analysis_data.get("evidence_items", [])[:8]:
+                                st.markdown(f"- 已確認：{evidence}")
+                            for unsupported in analysis_data.get("unsupported_assumptions", [])[:8]:
+                                st.caption(f"需確認：{unsupported}")
+                            for suggestion in analysis_data.get("recommended_followups", [])[:5]:
                                 st.markdown(
                                     f"**[{suggestion.get('priority', 'low').upper()}] {suggestion.get('title', '')}**  \n"
                                     f"{suggestion.get('action', '')}  \n"
@@ -792,11 +816,15 @@ if generate_btn:
         _image_warnings = []
         _image_risk_elevated = False
         _image_risk_reason = ""
+        _image_analyses = []
         for _fd in _all_fd:
             _img_und = _fd.get("image_understanding")
             if _img_und and _img_und.get("image_text_context"):
                 _image_text_context_parts.append(_img_und["image_text_context"])
             if _img_und:
+                _analysis_data = _img_und.get("analysis_result") or {}
+                if isinstance(_analysis_data, dict):
+                    _image_analyses.append(_analysis_data)
                 _si = _img_und.get("structured_info", {})
                 _image_safety_keywords.extend(_si.get("safety_keywords_found", []))
                 _image_warnings.extend(_si.get("warnings", []))
@@ -873,8 +901,30 @@ if generate_btn:
                         image_path=image_path,
                     )
 
+                # Remove image-specific assumptions that are not supported by
+                # independent visual evidence, OCR, or explicit user context.
+                _primary_image_analysis = _image_analyses[0] if _image_analyses else {}
+                if _primary_image_analysis:
+                    _visual_evidence = _primary_image_analysis.get("evidence_items") or []
+                    analysis_result, _agent_unsupported = sanitize_generated_analysis(
+                        analysis_result,
+                        _visual_evidence,
+                        " ".join([question or "", file_description or "", file_content or ""]),
+                    )
+                    if _agent_unsupported:
+                        _primary_image_analysis["unsupported_assumptions"] = list(dict.fromkeys(
+                            list(_primary_image_analysis.get("unsupported_assumptions") or [])
+                            + _agent_unsupported
+                        ))
+
                 # Classify risk, then calibrate with Agent risk weights
                 original_risk_level = classify_risk(selected_type, question, analysis_result)
+                if _primary_image_analysis:
+                    original_risk_level = merge_credible_risk(
+                        original_risk_level,
+                        original_risk_level,
+                        _primary_image_analysis,
+                    )
                 risk_level = original_risk_level
                 # Elevate risk if image OCR detected safety keywords
                 if _image_risk_elevated and risk_level == "低風險":
@@ -959,6 +1009,26 @@ if generate_btn:
                         risk_level = _ev_adjusted_risk
                 except Exception as _ev_err:
                     print(f"[evidence_confidence] WARNING: {_ev_err}", file=sys.stderr)
+
+                # Calibration/evidence processing may not downgrade a credible
+                # raw or visual safety risk without explicit mitigation proof.
+                if _primary_image_analysis:
+                    _pre_floor_risk = risk_level
+                    risk_level = merge_credible_risk(
+                        risk_level,
+                        original_risk_level,
+                        _primary_image_analysis,
+                        mitigation_evidence=False,
+                    )
+                    calibration_result["overall_risk_level"] = risk_level
+                    if risk_level != _pre_floor_risk:
+                        calibration_result["calibration_reason"] = (
+                            str(calibration_result.get("calibration_reason") or "")
+                            + " 可信圖片證據風險下限已套用，最終風險不可無理由降級。"
+                        ).strip()
+                    if isinstance(evidence_result, dict):
+                        evidence_result["adjusted_risk_level"] = risk_level
+                        evidence_result["credible_visual_floor_applied"] = risk_level != _pre_floor_risk
 
                 # ── Phase 3.3A/B: Site logic + progress tracking ─────────────
                 site_logic_result = {}
@@ -1133,6 +1203,7 @@ if generate_btn:
                             site_logic_result=site_logic_result,
                             progress_result=progress_result,
                             delay_concern_result=delay_concern_result,
+                            image_analysis=_primary_image_analysis,
                         )
                         project_report_path = get_project_report_path(project_ref_clean, current_session_id)
                         project_report_path.write_bytes(pdf_bytes)
@@ -1347,6 +1418,7 @@ if generate_btn:
                     "site_logic_result": site_logic_result,
                     "progress_result": progress_result,
                     "delay_concern_result": delay_concern_result,
+                    "image_analysis": _primary_image_analysis,
                     "resource_workforce_result": resource_workforce_result,
                     "repeated_issues_detected": repeated_issues_detected,
                 }

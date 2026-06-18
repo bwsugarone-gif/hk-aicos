@@ -9,6 +9,10 @@ from typing import Any
 
 class ImageCategory(str, Enum):
     SAFETY_ISSUE = "safety_issue"
+    HOT_WORK = "hot_work"
+    CUTTING_GRINDING = "cutting_grinding"
+    FIRE_RISK = "fire_risk"
+    PPE_ISSUE = "ppe_issue"
     CONSTRUCTION_DEFECT = "construction_defect"
     MATERIAL_DELIVERY = "material_delivery"
     HANDWRITTEN_RECORD = "handwritten_record"
@@ -61,12 +65,22 @@ class FollowUpSuggestion(SerializableModel):
 class ImageAnalysisResult(SerializableModel):
     extracted_text: str = ""
     detected_category: ImageCategory = ImageCategory.UNKNOWN
+    # ``confidence`` remains as a compatibility alias for visual confidence.
+    # OCR confidence must never be used as overall image/risk confidence.
     confidence: float = 0.0
     key_observations: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
     recommended_followups: list[FollowUpSuggestion] = field(default_factory=list)
     source_engine: str = "local_heuristic"
     raw_metadata: dict[str, Any] = field(default_factory=dict)
+    ocr_text: str = ""
+    ocr_confidence: float = 0.0
+    visual_confidence: float = 0.0
+    image_category: ImageCategory = ImageCategory.UNKNOWN
+    visual_observations: list[str] = field(default_factory=list)
+    evidence_items: list[str] = field(default_factory=list)
+    unsupported_assumptions: list[str] = field(default_factory=list)
+    needs_manual_review: bool = False
 
 
 @dataclass

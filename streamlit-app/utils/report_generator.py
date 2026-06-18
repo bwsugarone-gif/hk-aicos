@@ -27,6 +27,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from .image_safety_hardening import build_concise_image_summary
+
 # ── UTF-8 stdout/stderr (Windows) ─────────────────────────────────────────────
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -721,6 +723,7 @@ def generate_pdf_report(
     site_logic_result: dict = None,
     progress_result: dict = None,
     delay_concern_result: dict = None,
+    image_analysis: dict = None,
 ) -> bytes:
     st         = _rl_styles()
     now        = datetime.now()
@@ -744,16 +747,41 @@ def generate_pdf_report(
     agent_sections = _split_agent_sections(analysis_result, selected_agents)
 
     agent_sections_html = ""
-    for agent_id in selected_agents:
-        if agent_id not in _AD:
-            continue
-        section_title = _AD[agent_id]["report_section"]
-        fallback = AGENT_SECTION_FALLBACKS.get(agent_id, "未能取得該 Agent 的完整段落。")
-        section_text = agent_sections.get(agent_id, "")
-        agent_sections_html += (
-            f'<div class="section-header">{_html_escape(section_title)}</div>\n'
-            + _lines_to_html(section_text, fallback=fallback) + "\n"
-        )
+    image_summary = build_concise_image_summary(image_analysis) if image_analysis else None
+    if image_summary:
+        for heading, values in (
+            ("相片所見", image_summary["observations"]),
+            ("初步風險級別", [image_summary["risk_level"]]),
+            ("主要風險", image_summary["risks"]),
+            ("建議", image_summary["recommendations"]),
+            ("需確認事項", image_summary["confirmations"]),
+            ("負責跟進", image_summary["responsible"]),
+            ("來源 / 限制", image_summary["limitations"]),
+        ):
+            if values:
+                agent_sections_html += (
+                    f'<div class="section-header">{_html_escape(heading)}</div>\n'
+                    + _lines_to_html("\n".join(f"- {value}" for value in values[:5])) + "\n"
+                )
+        agent_sections_html += '<div class="section-header">Agent 摘要（附錄）</div>\n'
+        for agent_id in selected_agents:
+            if agent_id not in _AD or not agent_sections.get(agent_id):
+                continue
+            section_title = _AD[agent_id]["report_section"]
+            short_lines = [line for line in agent_sections[agent_id].splitlines() if line.strip()][:3]
+            agent_sections_html += f"<p><strong>{_html_escape(section_title)}</strong></p>\n"
+            agent_sections_html += _lines_to_html("\n".join(short_lines), fallback="資料不足，未作額外推斷。")
+    else:
+        for agent_id in selected_agents:
+            if agent_id not in _AD:
+                continue
+            section_title = _AD[agent_id]["report_section"]
+            fallback = AGENT_SECTION_FALLBACKS.get(agent_id, "未能取得該 Agent 的完整段落。")
+            section_text = agent_sections.get(agent_id, "")
+            agent_sections_html += (
+                f'<div class="section-header">{_html_escape(section_title)}</div>\n'
+                + _lines_to_html(section_text, fallback=fallback) + "\n"
+            )
 
     dept_html = (
         "".join(f'<span class="dept-tag">{_html_escape(d)}</span>' for d in departments)
@@ -767,7 +795,11 @@ def generate_pdf_report(
         for prof in professionals_required:
             professionals_html += f"<p>{_html_escape(_clean_report_text(prof))}</p>\n"
 
-    phase33_html = _phase33_html(site_logic_result, progress_result, delay_concern_result)
+    phase33_html = (
+        '<div class="section-header">工期影響</div><p>目前未有足夠進度資料，暫不判斷工期影響。</p>'
+        if image_summary
+        else _phase33_html(site_logic_result, progress_result, delay_concern_result)
+    )
 
     html_content = _build_html(
         report_id=report_id, now=now,
@@ -870,22 +902,49 @@ def generate_pdf_report(
     ]))
     story.append(risk_table)
 
+    if image_summary:
+        for heading, values in (
+            ("相片所見", image_summary["observations"]),
+            ("初步風險級別", [image_summary["risk_level"]]),
+            ("主要風險", image_summary["risks"]),
+            ("建議", image_summary["recommendations"]),
+            ("需確認事項", image_summary["confirmations"]),
+            ("負責跟進", image_summary["responsible"]),
+            ("來源 / 限制", image_summary["limitations"]),
+        ):
+            if values:
+                _rl_section_header(heading, story, st)
+                _rl_add_lines(story, "\n".join(f"- {value}" for value in values[:5]), st)
+
     # Agent sections
     try:
         from utils.agent_router import AGENT_DEFINITIONS as _AD2
     except Exception:
         _AD2 = {}
 
-    for agent_id in selected_agents:
-        if agent_id not in _AD2:
-            continue
-        section_title = _AD2[agent_id]["report_section"]
-        fallback = AGENT_SECTION_FALLBACKS.get(agent_id, "未能取得該 Agent 的完整段落。")
-        _rl_section_header(section_title, story, st)
-        _rl_add_lines(story, agent_sections.get(agent_id, ""), st, fallback=fallback)
+    if image_summary:
+        _rl_section_header("Agent 摘要（附錄）", story, st)
+        for agent_id in selected_agents:
+            if agent_id not in _AD2 or not agent_sections.get(agent_id):
+                continue
+            section_title = _AD2[agent_id]["report_section"]
+            short_lines = [line for line in agent_sections[agent_id].splitlines() if line.strip()][:3]
+            story.append(_rl_p(section_title, st["meta_label"]))
+            _rl_add_lines(story, "\n".join(short_lines), st, fallback="資料不足，未作額外推斷。")
+    else:
+        for agent_id in selected_agents:
+            if agent_id not in _AD2:
+                continue
+            section_title = _AD2[agent_id]["report_section"]
+            fallback = AGENT_SECTION_FALLBACKS.get(agent_id, "未能取得該 Agent 的完整段落。")
+            _rl_section_header(section_title, story, st)
+            _rl_add_lines(story, agent_sections.get(agent_id, ""), st, fallback=fallback)
 
     # Phase 3.3A/B: site logic and progress tracking
-    if site_logic_result:
+    if image_summary:
+        _rl_section_header("工期影響", story, st)
+        _rl_add_lines(story, "目前未有足夠進度資料，暫不判斷工期影響。", st)
+    elif site_logic_result:
         try:
             from utils.site_logic_engine import format_site_logic_for_report
             _rl_section_header("工序合理性分析", story, st)
@@ -893,7 +952,7 @@ def generate_pdf_report(
         except Exception:
             pass
 
-    if progress_result:
+    if progress_result and not image_summary:
         try:
             from utils.progress_tracker import format_progress_for_report
             timeline = progress_result.get("timeline_comparison", {}) if isinstance(progress_result, dict) else {}
@@ -919,11 +978,11 @@ def generate_pdf_report(
         pm_phase33_lines.append(site_logic_result.get("pm_summary", ""))
     if isinstance(progress_result, dict) and progress_result.get("pm_summary"):
         pm_phase33_lines.append(progress_result.get("pm_summary", ""))
-    if pm_phase33_lines:
+    if pm_phase33_lines and not image_summary:
         _rl_section_header("PM 工程狀態總結", story, st)
         _rl_add_lines(story, "\n".join(pm_phase33_lines), st)
 
-    if delay_concern_result:
+    if delay_concern_result and not image_summary:
         try:
             from utils.delay_concern_engine import format_delay_concern_for_report
             _rl_section_header("Delay Concern", story, st)

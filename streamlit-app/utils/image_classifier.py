@@ -12,6 +12,14 @@ _ALIASES = {
     "safety": ImageCategory.SAFETY_ISSUE,
     "hazard": ImageCategory.SAFETY_ISSUE,
     "unsafe": ImageCategory.SAFETY_ISSUE,
+    "hotwork": ImageCategory.HOT_WORK,
+    "hot_work": ImageCategory.HOT_WORK,
+    "welding": ImageCategory.HOT_WORK,
+    "cutting": ImageCategory.CUTTING_GRINDING,
+    "grinding": ImageCategory.CUTTING_GRINDING,
+    "grinder": ImageCategory.CUTTING_GRINDING,
+    "fire": ImageCategory.FIRE_RISK,
+    "ppe": ImageCategory.PPE_ISSUE,
     "defect": ImageCategory.CONSTRUCTION_DEFECT,
     "construction_issue": ImageCategory.CONSTRUCTION_DEFECT,
     "delivery": ImageCategory.MATERIAL_DELIVERY,
@@ -25,6 +33,22 @@ _ALIASES = {
 }
 
 _CATEGORY_KEYWORDS = {
+    ImageCategory.CUTTING_GRINDING: {
+        "grinder", "grinding", "angle grinder", "cutting tool", "metal cutting",
+        "磨機", "角磨機", "砂輪機", "切割機", "切割工具", "金屬切割",
+    },
+    ImageCategory.HOT_WORK: {
+        "hot work", "sparks", "spark", "welding", "flame", "torch cutting",
+        "熱工", "火花", "燒焊", "焊接", "明火", "氣割",
+    },
+    ImageCategory.FIRE_RISK: {
+        "fire risk", "combustible", "flammable", "fire blanket", "fire extinguisher",
+        "火災風險", "可燃物", "易燃物", "防火氈", "滅火筒", "滅火器",
+    },
+    ImageCategory.PPE_ISSUE: {
+        "ppe issue", "face shield", "eye protection", "safety glasses", "gloves",
+        "個人防護", "面罩", "眼罩", "護目鏡", "手套",
+    },
     ImageCategory.SAFETY_ISSUE: {
         "danger", "warning", "unsafe", "hazard", "stop work", "no helmet",
         "no harness", "open edge", "fall protection", "危險", "警告", "不安全",
@@ -66,24 +90,37 @@ def classify_image(
     vision_data: Mapping[str, Any] | None = None,
     *,
     has_supported_image: bool = True,
+    manual_context: str = "",
 ) -> tuple[ImageCategory, float]:
     """Return the best category and a conservative deterministic confidence."""
     vision_data = vision_data or {}
     vision_category = normalize_image_category(vision_data.get("category"))
     vision_confidence = _safe_confidence(vision_data.get("confidence"))
-    if vision_category is not ImageCategory.UNKNOWN and vision_confidence >= 0.45:
-        return vision_category, vision_confidence
-
     haystack = " ".join(
         [
             str(text or ""),
+            str(manual_context or ""),
             " ".join(str(item) for item in vision_data.get("observations", []) or []),
             " ".join(str(item) for item in vision_data.get("risks", []) or []),
+            " ".join(str(item) for item in vision_data.get("evidence_items", []) or []),
         ]
     ).lower()
     scores: dict[ImageCategory, int] = {}
     for category, keywords in _CATEGORY_KEYWORDS.items():
         scores[category] = sum(2 if " " in keyword else 1 for keyword in keywords if keyword in haystack)
+
+    # Visible/explicit hot-work signals override a generic site-photo label.
+    # A filename or user context may provide a conservative fallback when the
+    # vision provider is unavailable, but never with high confidence.
+    if scores.get(ImageCategory.CUTTING_GRINDING, 0):
+        base = 0.72 if vision_data.get("performed") else 0.55
+        return ImageCategory.CUTTING_GRINDING, min(0.92, max(base, vision_confidence))
+    if scores.get(ImageCategory.HOT_WORK, 0):
+        base = 0.72 if vision_data.get("performed") else 0.55
+        return ImageCategory.HOT_WORK, min(0.92, max(base, vision_confidence))
+
+    if vision_category is not ImageCategory.UNKNOWN and vision_confidence >= 0.45:
+        return vision_category, vision_confidence
 
     best_category = max(scores, key=scores.get) if scores else ImageCategory.UNKNOWN
     best_score = scores.get(best_category, 0)

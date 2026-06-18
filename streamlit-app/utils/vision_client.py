@@ -106,10 +106,15 @@ def analyze_image_with_vision(
                             "type": "text",
                             "text": (
                                 "Analyse this Hong Kong construction-site image. Return JSON only with keys: "
-                                "category, confidence, extracted_text, observations, risks. category must be one of "
-                                "safety_issue, construction_defect, material_delivery, handwritten_record, "
-                                "attendance_or_timesheet, general_site_photo, unknown. Keep observations and risks "
-                                "as concise Traditional Chinese string arrays. Do not infer facts that are not visible."
+                                "category, confidence, extracted_text, evidence_items, observations, risks, "
+                                "unsupported_assumptions, needs_manual_review. category must be one of "
+                                "hot_work, cutting_grinding, fire_risk, ppe_issue, safety_issue, "
+                                "construction_defect, material_delivery, handwritten_record, "
+                                "attendance_or_timesheet, general_site_photo, unknown. evidence_items must list only "
+                                "clearly visible facts in concise Traditional Chinese. Use 已確認 only for clearly "
+                                "visible facts. Put uncertain guesses in unsupported_assumptions. Never infer scaffold, "
+                                "working at height, gas cylinders, missing harness, guardrails, or toe boards unless "
+                                "they are clearly visible. Keep all arrays concise."
                             ),
                         },
                     ],
@@ -133,6 +138,9 @@ def analyze_image_with_vision(
             "extracted_text": str(parsed.get("extracted_text") or "").strip(),
             "observations": _string_list(parsed.get("observations")),
             "risks": _string_list(parsed.get("risks")),
+            "evidence_items": _string_list(parsed.get("evidence_items")),
+            "unsupported_assumptions": _string_list(parsed.get("unsupported_assumptions")),
+            "needs_manual_review": bool(parsed.get("needs_manual_review")),
         }
     except Exception as exc:
         result = _status("error", configured=True)
@@ -152,6 +160,9 @@ def _status(status: str, *, configured: bool) -> dict[str, Any]:
         "extracted_text": "",
         "observations": [],
         "risks": [],
+        "evidence_items": [],
+        "unsupported_assumptions": [],
+        "needs_manual_review": True,
     }
 
 
