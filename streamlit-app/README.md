@@ -8,7 +8,20 @@ Developed by **Buildway Tech (HK) Limited**
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. 建立建議的 Python 環境
+
+建議使用 **Python 3.11.9**。Python 3.14 並非本專案的目標執行環境；請勿提交由其他 Python 版本產生的 bytecode/cache 檔案。
+
+Windows（在專案根目錄執行）：
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r streamlit-app/requirements.txt
+streamlit run streamlit-app/app.py
+```
+
+### 2. Install dependencies（現有環境）
 
 ```bash
 cd streamlit-app
@@ -16,21 +29,39 @@ pip install -r requirements.txt
 pip install anthropic
 ```
 
-### 2. Set up API key (optional — app runs in demo mode without it)
+### 3. Set up API key (optional — app runs in demo mode without it)
 
 Create a `.env` file in this directory:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+ANTHROPIC_API_KEY=
 ```
 
-### 3. Run the app
+### 4. Run the app
 
 ```bash
 streamlit run app.py
 ```
 
 Open your browser at `http://localhost:8501`
+
+---
+
+## 啟用 Ask AICOS 即時網上搜尋
+
+在專案根目錄的 `.env` 加入其中一個供應商金鑰（切勿提交 `.env`）：
+
+```dotenv
+TAVILY_API_KEY=
+BRAVE_SEARCH_API_KEY=
+```
+
+- 同時設定兩者時，系統會優先使用 Tavily；沒有 Tavily 才使用 Brave Search。
+- 沒有設定金鑰或供應商暫時失敗時，系統不會假裝已完成網上搜尋，並會清楚顯示後備狀態；Ask AICOS 仍可使用本機知識庫及已儲存記錄。
+- 搜尋結果會分類為香港官方來源、可信行業來源、一般網上來源或未分類來源。安全及法例問題會優先採用香港政府、勞工處、屋宇署、機電工程署、發展局、香港法例電子版及建造業議會相關資料。
+- 安全及法例答案只供工作參考，必須以官方最新版本及合資格人士意見作最終核實，並不構成法律意見。
+
+`.env.md` 並非標準 dotenv 檔案；應使用 `.env`。應用程式會在啟動時載入專案根目錄或 `streamlit-app/.env`（如適用），但不會覆寫現有檔案。
 
 ---
 

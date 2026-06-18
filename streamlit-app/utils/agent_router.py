@@ -1,102 +1,411 @@
 """
-agent_router.py
-HK-AICOS Phase 2.0 - Agent Routing Logic
+HK-AICOS Phase 2.5F+ agent routing with personality & governance layer.
 
-Routes analysis requests to appropriate agents based on analysis type.
-Clients never see agent names - this is internal routing only.
+The Agent Selector is driven by the full agent library. Prompts are generated
+from the selected agents only, with optional file-backed instructions loaded
+from the project-level agents directory.
+
+Governance layer (agent_governance.py) injects personality profiles and
+output rules into every prompt automatically.
 """
 
-# Analysis type to agent mapping
-AGENT_ROUTING = {
-    "安全風險分析": {
-        "agents": ["Safety Agent", "PM Agent", "Legal Agent"],
-        "focus": ["site_safety", "risk_assessment", "legal_compliance"],
-        "regulations": ["hk-labour-layer", "hk-fsd-layer"],
-        "risk_keywords": ["高空", "密閉空間", "吊運", "電力", "危險品", "腳手架", "工人籠"],
+from pathlib import Path
+
+
+AGENT_DEFINITIONS = {
+    "accounting": {
+        "id": "accounting",
+        "name": "Accounting Agent",
+        "display": "Accounting Agent",
+        "icon": "AC",
+        "label": "Accounting Agent",
+        "desc": "檢視付款、發票、成本記錄、工資及會計風險。",
+        "focus": ["付款及發票", "工資及成本記錄", "會計合規", "財務風險"],
+        "regulations": ["Accounting", "Contract", "MPF"],
+        "report_section": "Accounting Agent 分析",
+        "instruction_files": ["agents-accounting-agent.md", "accounting-agent.md"],
+        "fallback_instruction": "從會計、付款、發票、成本記錄及財務控制角度分析事項，指出金額、責任、證據及跟進建議。",
     },
-    "圖紙 / CAP / MIB 分析": {
-        "agents": ["Drafting Agent", "Engineering Agent", "Surveying Agent", "PM Agent", "Legal Agent"],
-        "focus": ["drawing_review", "structural_check", "compliance_check"],
-        "regulations": ["hk-bd-layer", "hk-emsd-layer"],
-        "risk_keywords": ["結構", "承重", "改動", "認可人士", "AP", "RSE"],
+    "drafting": {
+        "id": "drafting",
+        "name": "Drafting Agent",
+        "display": "Drafting Agent",
+        "icon": "DR",
+        "label": "Drafting Agent",
+        "desc": "檢視圖則、版本、標註、RFI 及設計文件一致性。",
+        "focus": ["圖則版本", "設計文件", "RFI", "圖則不一致"],
+        "regulations": ["Drawings", "RFI", "BIM"],
+        "report_section": "Drafting Agent 分析",
+        "instruction_files": ["agents-drafting-agent.md", "drafting-agent.md"],
+        "fallback_instruction": "從圖則、設計文件、版本控制、標註及 RFI 角度分析，指出圖則差異及需澄清事項。",
     },
-    "工程進度分析": {
-        "agents": ["Engineering Agent", "Foreman Agent", "PM Agent"],
-        "focus": ["progress_tracking", "delay_analysis", "resource_planning"],
-        "regulations": ["hk-labour-layer"],
-        "risk_keywords": ["延誤", "工期", "分判", "工序"],
+    "engineering": {
+        "id": "engineering",
+        "name": "Engineering Agent",
+        "display": "Engineering Agent",
+        "icon": "EN",
+        "label": "Engineering Agent",
+        "desc": "分析施工方法、進度、技術風險、工序及工程影響。",
+        "focus": ["施工方法", "工程進度", "技術風險", "工序協調"],
+        "regulations": ["BD", "EMSD", "CEDD", "HyD", "DSD", "WSD"],
+        "report_section": "Engineering Agent 分析",
+        "instruction_files": ["agents-engineering-agent.md", "engineering-agent.md"],
+        "fallback_instruction": "從工程技術、施工方法、進度、工序協調及現場可行性角度分析，列出影響及跟進行動。",
     },
-    "法規 / 合規檢查": {
-        "agents": ["Legal Agent", "PM Agent"],
-        "focus": ["regulatory_compliance", "legal_review", "permit_check"],
-        "regulations": ["hk-bd-layer", "hk-emsd-layer", "hk-epd-layer", "hk-labour-layer",
-                        "hk-fsd-layer", "hk-wsd-layer", "hk-landsd-layer", "hk-hyd-layer",
-                        "hk-cedd-layer", "hk-dsd-layer", "hk-td-layer", "hk-legal-layer"],
-        "risk_keywords": ["法例", "牌照", "許可證", "政府", "部門", "條例"],
+    "foreman": {
+        "id": "foreman",
+        "name": "Foreman Agent",
+        "display": "Foreman Agent",
+        "icon": "FM",
+        "label": "Foreman Agent",
+        "desc": "以地盤前線角度檢視人手、工序、現場狀況及即時安排。",
+        "focus": ["地盤前線", "人手安排", "工序執行", "即時跟進"],
+        "regulations": ["Site Management", "SOP"],
+        "report_section": "Foreman Agent 分析",
+        "instruction_files": ["agents-foreman-agent.md", "foreman-agent.md"],
+        "fallback_instruction": "從地盤前線、人手、機具、材料到場、工序銜接及即日行動角度分析，提出可執行跟進。",
     },
-    "臨時設施位置分析": {
-        "agents": ["Engineering Agent", "Safety Agent", "Surveying Agent", "PM Agent", "Legal Agent"],
-        "focus": ["temporary_works", "crane_positioning", "access_safety"],
-        "regulations": ["hk-labour-layer", "hk-bd-layer", "hk-emsd-layer"],
-        "risk_keywords": ["天秤", "塔吊", "工人籠", "人貨升降機", "臨時平台", "臨時支撐", "吊運"],
+    "material": {
+        "id": "material",
+        "name": "Material Agent",
+        "display": "Material Agent",
+        "icon": "MT",
+        "label": "Material Agent",
+        "desc": "檢視物料採購、到貨、測試、批核及品質文件。",
+        "focus": ["物料採購", "物料到貨", "測試報告", "品質文件"],
+        "regulations": ["Material", "QA/QC", "Procurement"],
+        "report_section": "Material Agent 分析",
+        "instruction_files": ["agents-material-agent.md", "material-agent.md"],
+        "fallback_instruction": "從物料採購、到貨、批核、測試報告、品質文件及替代物料風險角度分析。",
     },
-    "成本 / 工期影響分析": {
-        "agents": ["QS Agent", "Engineering Agent", "PM Agent", "Accounting Agent"],
-        "focus": ["cost_analysis", "programme_impact", "vo_assessment"],
-        "regulations": ["hk-legal-layer"],
-        "risk_keywords": ["VO", "索償", "合約", "費用", "預算", "工期"],
+    "pm": {
+        "id": "pm",
+        "name": "PM Agent",
+        "display": "PM Agent",
+        "icon": "PM",
+        "label": "PM Agent",
+        "desc": "整合跨部門風險、責任、優先次序、進度及管理決策。",
+        "focus": ["項目管理", "進度整合", "責任分工", "管理決策"],
+        "regulations": ["Project Management", "Contract", "All departments"],
+        "report_section": "PM Agent 分析",
+        "instruction_files": ["agents-pm-agent.md", "pm-agent.md"],
+        "fallback_instruction": "從項目管理、跨部門協調、責任分工、進度影響、客戶溝通及決策優先次序角度整合分析。",
     },
-    "PM 綜合分析": {
-        "agents": ["PM Agent", "Engineering Agent", "Safety Agent", "QS Agent", "Legal Agent"],
-        "focus": ["comprehensive_review", "risk_management", "decision_support"],
-        "regulations": ["hk-bd-layer", "hk-labour-layer", "hk-legal-layer"],
-        "risk_keywords": ["綜合", "整體", "決策", "風險管理"],
+    "qs": {
+        "id": "qs",
+        "name": "QS Agent",
+        "display": "QS Agent",
+        "icon": "QS",
+        "label": "QS Agent",
+        "desc": "分析合約、VO、成本、付款、索償及工期金錢影響。",
+        "focus": ["合約金額", "VO", "索償", "付款", "成本及工期影響"],
+        "regulations": ["Contract", "QS", "VO"],
+        "report_section": "QS Agent 分析",
+        "instruction_files": ["agents-qs-agent.md", "qs-agent.md"],
+        "fallback_instruction": "從合約、VO、付款、索償、成本及工期金錢影響角度分析，指出證據及商務跟進。",
+    },
+    "safety": {
+        "id": "safety",
+        "name": "Safety Agent",
+        "display": "Safety Agent",
+        "icon": "SF",
+        "label": "Safety Agent",
+        "desc": "分析安全風險、法定要求、PPE、事故預防及即時控制措施。",
+        "focus": ["安全風險", "PPE", "高危工序", "事故預防", "即時控制措施"],
+        "regulations": ["Labour", "FSD", "EMSD", "BD"],
+        "report_section": "Safety Agent 分析",
+        "instruction_files": ["agents-safety-agent.md", "safety-agent.md"],
+        "fallback_instruction": "從安全風險、PPE、高危工序、法定安全要求、事故預防及即時控制措施角度分析。",
+    },
+    "surveying": {
+        "id": "surveying",
+        "name": "Surveying Agent",
+        "display": "Surveying Agent",
+        "icon": "SV",
+        "label": "Surveying Agent",
+        "desc": "檢視測量、放線、標高、尺寸偏差及監測記錄。",
+        "focus": ["測量", "放線", "標高", "尺寸偏差", "監測記錄"],
+        "regulations": ["Surveying", "Monitoring", "QA/QC"],
+        "report_section": "Surveying Agent 分析",
+        "instruction_files": ["agents-surveying-agent.md", "surveying-agent.md"],
+        "fallback_instruction": "從測量、放線、標高、尺寸偏差、監測記錄及竣工資料角度分析，指出偏差及復核需要。",
+    },
+    "hk_legal": {
+        "id": "hk_legal",
+        "name": "HK Legal Layer",
+        "display": "HK Legal Layer",
+        "icon": "HK",
+        "label": "HK Legal Layer",
+        "desc": "檢視香港法規、合約責任、監管要求及法律風險。",
+        "focus": ["香港法規", "合約責任", "監管要求", "法律風險"],
+        "regulations": ["HK Legal", "BD", "Labour", "FSD", "EMSD", "EPD"],
+        "report_section": "HK Legal Layer 分析",
+        "instruction_files": ["regulationshk-legal-layer.md", "hk-legal-layer.md", "legal-agent.md"],
+        "fallback_instruction": "從香港法律、監管要求、合約責任、法定通知、責任承擔及法律風險角度分析。",
     },
 }
 
-# High-risk keywords that always trigger L4 (Extreme Risk)
-EXTREME_RISK_TRIGGERS = [
-    "死亡", "嚴重受傷", "結構倒塌", "火警", "爆炸", "觸電", "高壓",
-    "訴訟", "律師信", "法庭", "刑事", "掘路", "公共道路損壞",
+AGENT_ORDER = [
+    "accounting",
+    "drafting",
+    "engineering",
+    "foreman",
+    "material",
+    "pm",
+    "qs",
+    "safety",
+    "surveying",
+    "hk_legal",
 ]
 
-# Keywords requiring professional confirmation
-PROFESSIONAL_CONFIRMATION_TRIGGERS = {
-    "認可人士 (AP)": ["結構", "承重牆", "建築改動", "圖則審批", "屋宇署"],
-    "註冊結構工程師 (RSE)": ["結構計算", "基礎", "深開挖", "斜坡"],
-    "岩土工程師 (RGE)": ["斜坡", "土力", "地基", "深開挖"],
-    "註冊電業工程人員 (REW)": ["電力", "電氣", "高壓", "電力系統", "機電"],
-    "消防工程師": ["消防", "火警系統", "逃生", "危險品"],
-    "持牌水喉匠": ["食水", "水喉", "水務", "排水"],
-    "香港律師": ["法律責任", "訴訟", "合約爭議", "索償", "律師信"],
-    "安全主任": ["工傷", "安全事故", "危險工序", "高空工作"],
+DEFAULT_SELECTED_AGENTS = ["pm", "safety", "engineering"]
+
+
+AGENT_ROUTING = {
+    "安全風險分析": {
+        "agents": ["Safety Agent", "PM Agent", "HK Legal Layer"],
+        "focus": ["安全風險", "高危工序", "即時控制措施"],
+        "regulations": ["Labour", "FSD", "BD"],
+    },
+    "工程及進度分析": {
+        "agents": ["Engineering Agent", "Foreman Agent", "PM Agent"],
+        "focus": ["施工方法", "工程進度", "工序協調"],
+        "regulations": ["BD", "SOP"],
+    },
+    "合約及成本分析": {
+        "agents": ["QS Agent", "Accounting Agent", "PM Agent"],
+        "focus": ["VO", "成本", "付款", "索償"],
+        "regulations": ["Contract", "QS"],
+    },
+    "綜合項目分析": {
+        "agents": ["PM Agent", "Engineering Agent", "Safety Agent"],
+        "focus": ["項目管理", "進度整合", "風險排序"],
+        "regulations": ["All departments"],
+    },
 }
+
+
+PROFESSIONAL_CONFIRMATION_TRIGGERS = {
+    "PM Agent": ["重大", "高風險", "延誤", "停工", "客戶", "決策"],
+    "Safety Agent": ["安全", "受傷", "PPE", "高空", "吊運", "事故"],
+    "Engineering Agent": ["圖則", "施工", "工序", "結構", "進度", "技術"],
+    "QS Agent": ["VO", "索償", "付款", "成本", "合約", "變更"],
+    "HK Legal Layer": ["法律", "法例", "合規", "責任", "訴訟", "監管"],
+}
+
+EXTREME_RISK_TRIGGERS = ["死亡", "重傷", "停工", "倒塌", "火警", "訴訟", "重大索償"]
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _agents_dir() -> Path:
+    return _project_root() / "agents"
+
+
+def _read_text_safely(path: Path) -> str:
+    for encoding in ("utf-8", "utf-8-sig", "cp950", "big5", "latin-1"):
+        try:
+            return path.read_text(encoding=encoding)
+        except Exception:
+            continue
+    return ""
+
+
+def get_agent_instruction(agent_id: str) -> str:
+    agent = AGENT_DEFINITIONS.get(agent_id)
+    if not agent:
+        return ""
+
+    for filename in agent.get("instruction_files", []):
+        path = _agents_dir() / filename
+        if path.exists():
+            content = _read_text_safely(path).strip()
+            if content:
+                return content
+
+    return agent["fallback_instruction"]
+
+
+def _normalise_analysis_type(analysis_type: str) -> str:
+    text = str(analysis_type or "")
+    if text in AGENT_ROUTING:
+        return text
+    if any(keyword in text for keyword in ["安全", "PPE", "事故"]):
+        return "安全風險分析"
+    if any(keyword in text for keyword in ["QS", "VO", "成本", "合約"]):
+        return "合約及成本分析"
+    if any(keyword in text for keyword in ["工程", "進度", "圖則", "施工"]):
+        return "工程及進度分析"
+    return "綜合項目分析"
 
 
 def get_routing(analysis_type: str) -> dict:
-    """Get routing configuration for a given analysis type."""
-    return AGENT_ROUTING.get(analysis_type, AGENT_ROUTING["PM 綜合分析"])
+    return AGENT_ROUTING[_normalise_analysis_type(analysis_type)]
 
 
 def get_all_analysis_types() -> list:
-    """Return list of all available analysis types for UI display."""
     return list(AGENT_ROUTING.keys())
 
 
 def check_extreme_risk(text: str) -> bool:
-    """Check if input contains extreme risk keywords."""
-    text_lower = text.lower()
-    return any(kw in text for kw in EXTREME_RISK_TRIGGERS)
+    return any(keyword in str(text or "") for keyword in EXTREME_RISK_TRIGGERS)
 
 
 def get_required_professionals(analysis_type: str, question: str, file_description: str = "") -> list:
-    """Determine which professionals need to confirm based on content."""
     combined_text = f"{analysis_type} {question} {file_description}"
     required = []
     for professional, keywords in PROFESSIONAL_CONFIRMATION_TRIGGERS.items():
-        if any(kw in combined_text for kw in keywords):
+        if any(keyword.lower() in combined_text.lower() for keyword in keywords):
             required.append(professional)
     return required
+
+
+def get_agent_definitions() -> dict:
+    return AGENT_DEFINITIONS
+
+
+def get_agents_ordered() -> list:
+    return [AGENT_DEFINITIONS[k] for k in AGENT_ORDER]
+
+
+def _selected_agent_defs(selected_agent_ids: list) -> list:
+    ids = selected_agent_ids or list(DEFAULT_SELECTED_AGENTS)
+    return [AGENT_DEFINITIONS[aid] for aid in ids if aid in AGENT_DEFINITIONS]
+
+
+def build_prompt_from_agents(
+    selected_agent_ids: list,
+    question: str,
+    file_description: str,
+    rag_context: str = "",
+) -> str:
+    """
+    Build an analysis prompt dynamically from selected agents.
+    Existing agents/*.md files are preferred as instructions. If a file cannot
+    be read, the agent fallback instruction is used silently.
+    """
+    agents = _selected_agent_defs(selected_agent_ids)
+    selected_names = "、".join(agent["display"] for agent in agents)
+
+    focus_items = []
+    regulation_items = []
+    for agent in agents:
+        for item in agent["focus"]:
+            if item not in focus_items:
+                focus_items.append(item)
+        for item in agent["regulations"]:
+            if item not in regulation_items:
+                regulation_items.append(item)
+
+    instruction_blocks = []
+    output_sections = []
+    for agent in agents:
+        instruction = get_agent_instruction(agent["id"])
+        instruction_blocks.append(
+            f"Agent：{agent['display']}\n"
+            f"Instruction：\n{instruction}"
+        )
+        is_pm = agent["id"] == "pm"
+        pm_extra = (
+            "\n已確認重點\n主要風險\n需確認事項\n建議行動\nPM 最終判斷"
+            if is_pm else
+            "\n已確認重點\n主要風險\n需確認事項\n建議行動"
+        )
+        output_sections.append(
+            f"{agent['report_section']}\n"
+            f"請只輸出與 {agent['display']} 職責相關的內容，按以下 4 個 section 輸出：{pm_extra}"
+        )
+
+    reference_text = rag_context.strip() if rag_context else "沒有額外參考資料。"
+
+    base_prompt = f"""你是 HK-AICOS 工程分析系統，代表 Buildway Tech (HK) Limited 生成客戶可讀的繁體中文分析報告。
+請根據用戶選擇的 Agent 動態分析，不要加入未被選中的 Agent 章節。
+不要輸出大量 Markdown 符號，例如 #、##、**、===、---。
+不要提及 backend、prompt、model、API、debug 或系統內部字眼。
+語氣要專業、直接、可交付，重點放在工程事實、風險、責任、影響及下一步行動。
+
+【輸出格式鎖定 — 必須嚴格遵守】
+
+每個 Agent 章節只可輸出以下 4 個 section，標題必須完全一致，不可新增、刪除或改名：
+
+Agent 名稱：[Agent 名稱]
+
+已確認重點：
+1. [基於實際證據，1 句]
+2. [基於實際證據，1 句]
+3. [基於實際證據，1 句（最多 3 點）]
+
+主要風險：
+1. [風險及影響，1–2 句]
+2. [風險及影響，1–2 句]
+3. [風險及影響，1–2 句（最多 3 點）]
+
+需確認事項：
+1. [未能確認 / 合理懷疑 / 需補充資料，1 句]
+2. [未能確認 / 合理懷疑 / 需補充資料，1 句（最多 2 點）]
+
+建議行動：
+1. [可執行的具體行動，1 句]
+2. [可執行的具體行動，1 句]
+3. [可執行的具體行動，1 句（最多 3 點）]
+
+禁止規則：
+- 禁止輸出上述 4 個 section 以外的任何標題或 section
+- 禁止自由新增「背景」、「總結」、「法規參考」、「補充說明」等額外 section
+- 禁止重複其他 Agent 已提及的風險
+- 禁止加入與 Agent 職責無關的內容
+- 每個 Agent 章節最多 300 字
+- 法規只保留：「可能涉及勞工處 / 屋宇署 / EMSD」等簡短提示，不作詳細法例解釋
+
+PM Agent 特別要求（如選中 PM Agent）：
+PM Agent 在 4 個標準 section 之後，必須額外輸出第 5 個 section：
+
+PM 最終判斷：
+- 可否繼續施工：[可以 / 有限度 / 須停工]
+- 最重要風險：[1 項]
+- 即時行動：[1–2 項]
+- 需誰確認：[例如：安全主任 / 認可人士 / 註冊工程師]
+
+已選擇 Agent：
+{selected_names}
+
+用戶問題：
+{question}
+
+文件或相片資料：
+{file_description if file_description else "沒有上載文件或相片資料。"}
+
+重點分析範圍：
+{"、".join(focus_items)}
+
+相關規例或資料層：
+{"、".join(regulation_items)}
+
+參考資料：
+{reference_text}
+
+Agent instructions：
+{chr(10).join(instruction_blocks)}
+
+請按以下次序輸出，每個標題使用原文，不要使用 Markdown 標題符號：
+{chr(10).join(output_sections)}
+"""
+
+    # Inject evidence confidence rules (graceful — no crash if missing)
+    try:
+        from utils.evidence_confidence import get_evidence_prompt_injection
+        base_prompt = base_prompt + "\n" + get_evidence_prompt_injection()
+    except Exception:
+        pass
+
+    # Inject personality & output rules from governance layer (graceful — no crash if missing)
+    try:
+        from utils.agent_governance import enrich_prompt_with_personality
+        return enrich_prompt_with_personality(base_prompt, selected_agent_ids or [])
+    except Exception:
+        return base_prompt
 
 
 def build_analysis_prompt(
@@ -105,62 +414,11 @@ def build_analysis_prompt(
     file_description: str,
     rag_context: str = "",
 ) -> str:
-    """
-    Build the analysis prompt for the selected analysis type.
-    This is the core prompt sent to the AI model.
-    """
     routing = get_routing(analysis_type)
-    professionals = get_required_professionals(analysis_type, question, file_description)
-
-    prompt = f"""你是 HK-AICOS AI 建築工程分析系統，由 Buildway Tech (HK) Limited 提供。
-
-## 分析任務
-分析類型：{analysis_type}
-用戶問題：{question}
-上傳文件描述：{file_description if file_description else "無上傳文件"}
-
-## 分析重點
-{chr(10).join(f"- {f}" for f in routing["focus"])}
-
-## 相關法規參考
-{chr(10).join(f"- {r}" for r in routing["regulations"])}
-
-{"## RAG 參考資料" + chr(10) + rag_context if rag_context else ""}
-
-## 輸出要求
-請按以下格式提供專業分析報告：
-
-### 1. 輸入資料摘要
-簡述收到的資料及問題。
-
-### 2. 工程分析
-從工程技術角度分析。
-
-### 3. 安全分析
-識別安全風險及建議措施。
-
-### 4. 法規 / 合規分析
-列出相關香港法例及政府部門要求。
-
-### 5. 成本及工期影響
-評估對成本及工期的潛在影響。
-
-### 6. 風險級別
-評定風險級別：低風險 / 中風險 / 高風險 / 極高風險
-並說明原因。
-
-### 7. 建議跟進事項
-列出具體建議行動（按優先次序）。
-
-### 8. 需要人工確認事項
-列出需要人類 PM 確認的事項。
-
-### 9. 需要香港合資格人士確認
-{"需要以下專業人士確認：" + chr(10) + chr(10).join(f"- {p}" for p in professionals) if professionals else "本分析暫時不需要特定專業人士確認，但如有疑問請諮詢相關專業人士。"}
-
-## 重要提示
-- 分析僅供 AI 輔助參考
-- 不可取代專業人士判斷
-- 高風險事項必須由人類 PM 最終確認
-"""
-    return prompt
+    route_agents = []
+    for name in routing["agents"]:
+        for agent_id, agent in AGENT_DEFINITIONS.items():
+            if agent["display"] == name:
+                route_agents.append(agent_id)
+                break
+    return build_prompt_from_agents(route_agents, question, file_description, rag_context)

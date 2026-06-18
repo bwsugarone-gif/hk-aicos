@@ -1,0 +1,79 @@
+{
+  "version": "2.5F",
+  "updated_at": "2026-05-16T15:59:43.192058+00:00",
+  "documents": [
+    {
+      "file_name": "labour-safety-ordinance-cap59.md",
+      "file_type": "md",
+      "category": "regulations",
+      "source_department": "勞工處",
+      "version_date": "",
+      "uploaded_at": "2026-05-16T15:59:43.191057+00:00",
+      "language": "zh-Hant",
+      "summary": "# 工廠及工業經營條例（第59章）— 工地安全摘要",
+      "keywords": [
+        "工廠及工",
+        "業經營條",
+        "工地安全",
+        "摘要",
+        "來源部門",
+        "勞工處",
+        "版本日期",
+        "語言",
+        "繁體中文",
+        "主要條文"
+      ],
+      "path": "rag_documents\\regulations\\labour-safety-ordinance-cap59.md"
+    },
+    {
+      "file_name": "cop-working-at-height.md",
+      "file_type": "md",
+      "category": "codes_of_practice",
+      "source_department": "",
+      "version_date": "",
+      "uploaded_at": "2026-05-16T15:59:43.192058+00:00",
+      "language": "zh-Hant",
+      "summary": "# 高空工作實務守則（Code of Practice for Working at Height）",
+      "keywords": [
+        "高空工作",
+        "實務守則",
+        "來源部門",
+        "勞工處",
+        "版本日期",
+        "語言",
+        "繁體中文",
+        "適用範圍",
+        "適用於所",
+        "有在建築",
+        "code",
+        "practice",
+        "working",
+        "height"
+      ],
+      "path": "rag_documents\\codes_of_practice\\cop-working-at-height.md"
+    },
+    {
+      "file_name": "bd-practice-note-app-buildings.md",
+      "file_type": "md",
+      "category": "guidelines",
+      "source_department": "屋宇署",
+      "version_date": "",
+      "uploaded_at": "2026-05-16T15:59:43.192058+00:00",
+      "language": "zh-Hant",
+      "summary": "# 屋宇署實務備考 — 認可人士及註冊結構工程師職責",
+      "keywords": [
+        "屋宇署實",
+        "務備考",
+        "認可人士",
+        "及註冊結",
+        "構工程師",
+        "職責",
+        "來源部門",
+        "屋宇署",
+        "版本日期",
+        "語言"
+      ],
+      "path": "rag_documents\\guidelines\\bd-practice-note-app-buildings.md"
+    }
+  ]
+}

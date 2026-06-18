@@ -1,0 +1,43 @@
+# Environment / secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+**/__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# VS Code
+.vscode/launch.json
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Reports (generated files)
+streamlit-app/uploads/
+streamlit-app/reports/*.pdf
+streamlit-app/projects/*
+!streamlit-app/projects/.gitkeep
+streamlit-app/data/action_items_backup_*.json
+streamlit-app/data/site_records.jsonl
+streamlit-app/data/*.jsonl
+streamlit-app/logs/*.log
+streamlit-app/reports/*.html
+output/playwright/
+screenshots/
+*.tmp
+syntax_check.txt
+
+# OS
+.DS_Store
+Thumbs.db

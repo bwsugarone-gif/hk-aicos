@@ -1,0 +1,14 @@
+{
+  "incident_id": "INC-20260516-161711-C7C152",
+  "timestamp": "2026-05-16T16:17:11.925148+00:00",
+  "project_ref": "BW-TEST-001",
+  "session_id": "test-session-governance",
+  "failed_agent": "safety",
+  "error_type": "ValueError",
+  "error_message": "Simulated agent failure for testing\nTraceback (most recent call last):\n  File \"C:\\Users\\user\\Desktop\\buildway tech(HK) Limited\\streamlit-app\\utils\\agent_governance.py\", line 153, in run_agents_with_fault_tolerance\n    output = runner()\n             ^^^^^^^^\n  File \"C:\\Users\\user\\Desktop\\buildway tech(HK) Limited\\streamlit-app\\utils\\agent_governance.py\", line 423, in _failing_agent\n    raise ValueError(\"Simulated agent failure for testing\")\nValueError: Simulated agent failure for testing\n",
+  "recovery_action": "Exception caught. Used fallback text. Other agents continued.",
+  "whether_report_generated": true,
+  "affected_sections": [
+    "safety"
+  ]
+}

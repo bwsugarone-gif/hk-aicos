@@ -1,172 +1,59 @@
-# PHASE 2.0 OVERVIEW
-## HK-AICOS 半自動 AI 工程助理系統
+HK-AICOS Phase 2.0 Stable Overview
 
----
+版本：v2.0 Stable
+目標：Client-ready Multi-Agent PDF Report
 
-**版本：** v2.0.0
-**日期：** 2026-05-13
-**狀態：** Phase 2.0 文件骨架
+定位
 
----
+Phase 2.0 不是新增功能，也不是系統重構。
+目標是將現有 Multi-Agent PDF Report 穩定成可對外 Demo 及 Sell 的版本。
 
-## 系統定位
+Phase 2.0 範圍
 
-Phase 2.0 係 HK-AICOS 的**半自動 AI 工程助理**階段。
+包括 WhatsApp、手動輸入及 PDF 摘要。
+包括 Agent Summary Mode。
+包括安全、PM、法規及 QS 分工式報告。
+包括政府部門提醒式 mapping。
+包括 PM approval 前的簡潔報告。
 
-```
-Phase 1.0  → 企業級文件骨架（已完成）
-Phase 1.5  → 香港工程法規 RAG 文件結構（已完成）
-Phase 2.0  → 半自動 AI 工程助理流程（現階段）  ← 你在這裡
-Phase 2.5  → MCP / RAG / Memory / Dashboard 深度整合（之後）
-Phase 3.0  → Full AI Construction Operating System（之後）
-```
+不包括自動決策。
+不包括深度 RAG pipeline。
+不包括 Dashboard 自動化。
+不包括 Memory 自動學習。
+不包括大型系統重構。
 
----
+報告風格
 
-## Phase 2.0 目標
+簡潔。
+工程 PM 易睇。
+手機易睇。
+不使用 Markdown 符號。
+不似 AI 作文。
+不用開發或系統內部字眼。
 
-建立一個**人機協作**的工程助理流程：
+Phase 2.0 文件
 
-1. **輸入** - 接收 WhatsApp / 手動輸入 / 圖片 / PDF / 地盤資料
-2. **分類** - AI Agent 識別任務類型，觸發對應 Agent
-3. **分析** - Agent 讀取 Markdown Prompt / Regulations / RAG 文件
-4. **輸出** - 生成工程、安全、法規、成本、工期分析報告
-5. **確認** - 由人類 PM 最終確認，AI 不作最終決定
+OUTPUT_REPORT_TEMPLATE.md：對外 PDF 報告格式。
+AGENT_EXECUTION_TEMPLATE.md：Agent Summary Mode 執行格式。
+RISK_LEVEL_STANDARD.md：風險級別。
+HUMAN_APPROVAL_FLOW.md：人手確認流程。
+WHATSAPP_INPUT_TEMPLATE.md：輸入格式。
+PHASE_2_5_RESERVED.md：留待下一階段。
 
----
+Client Demo 標準
 
-## Phase 2.0 核心原則
+輸出 PDF 必須中文正常，沒有亂碼。
+輸出 PDF 不得有開發、模型、除錯或測試字眼。
+輸出 PDF 不得有 Markdown 符號。
+每個 Agent 保持三至五行。
+項目摘要先行。
+可能涉及政府部門只做提醒式列出。
+PM 三十秒內看到重點及下一步。
 
-### 半自動，非全自動
+Phase 2.5 才處理
 
-| 項目 | Phase 2.0 做法 |
-|------|---------------|
-| 輸入處理 | 人手輸入 + AI 分類 |
-| 分析 | AI 輔助分析 |
-| 決策 | 人類最終確認 |
-| 記錄 | 手動記錄（無 Database） |
-| 通訊 | 人手發送（AI 不自動發送） |
-
-### 明確限制
-
-Phase 2.0 **不包括**：
-
-- ❌ 正式 Database（無 SQL / NoSQL）
-- ❌ MCP 整合（Phase 2.5 才做）
-- ❌ Dashboard（Phase 3 才做）
-- ❌ Memory System（Phase 2.5 才做）
-- ❌ Auto Decision（AI 不自動決定）
-- ❌ 自動發送正式回覆
-- ❌ AI 代表公司作最終決定
-- ❌ 安裝 Package（除非另行確認）
-
----
-
-## Phase 2.0 工作流程概覽
-
-```
-地盤輸入
-（WhatsApp / 手動 / 圖片 / PDF）
-        ↓
-[STEP 1] 輸入格式化
-        ↓
-[STEP 2] AI Agent 分類
-（識別任務類型，觸發對應 Agent）
-        ↓
-[STEP 3] Agent 讀取參考文件
-（Markdown Prompt / Regulations / RAG）
-        ↓
-[STEP 4] AI 生成分析報告
-（工程 / 安全 / 法規 / 成本 / 工期）
-        ↓
-[STEP 5] 風險評估
-（低 / 中 / 高 / 極高）
-        ↓
-[STEP 6] 人工確認
-（PM 確認 / Legal 確認 / 專業人士確認）
-        ↓
-[STEP 7] 輸出最終報告
-（由人類 PM 簽發）
-```
-
----
-
-## Phase 2.0 文件索引
-
-| 文件 | 用途 |
-|------|------|
-| `PHASE_2_0_OVERVIEW.md` | 本文件 - 系統總覽 |
-| `SEMI_AI_WORKFLOW.md` | 半自動工作流程詳細說明 |
-| `WHATSAPP_INPUT_TEMPLATE.md` | WhatsApp 輸入格式模板 |
-| `AGENT_EXECUTION_TEMPLATE.md` | Agent 執行模板（10 個 Agent） |
-| `HUMAN_APPROVAL_FLOW.md` | 人工確認流程 |
-| `OUTPUT_REPORT_TEMPLATE.md` | AI 分析輸出報告模板 |
-| `RISK_LEVEL_STANDARD.md` | 風險等級標準 |
-| `PHASE_2_5_RESERVED.md` | Phase 2.5 預留文件 |
-
----
-
-## 使用方式（Phase 2.0）
-
-### 日常使用步驟
-
-1. 地盤人員透過 WhatsApp 發送訊息（按 `WHATSAPP_INPUT_TEMPLATE.md` 格式）
-2. 辦公室人員將訊息輸入 AI（Claude / ChatGPT）
-3. AI 根據 `AGENT_EXECUTION_TEMPLATE.md` 分析
-4. AI 輸出報告（按 `OUTPUT_REPORT_TEMPLATE.md` 格式）
-5. PM 按 `HUMAN_APPROVAL_FLOW.md` 確認
-6. 人手記錄及跟進
-
-### 所需工具（Phase 2.0）
-
-- Claude / ChatGPT（AI 分析）
-- WhatsApp（輸入）
-- Microsoft Word / Google Docs（報告輸出）
-- 現有 Markdown 文件（Agent Prompt / Regulations）
-
----
-
-## 與現有文件的關係
-
-Phase 2.0 直接使用 Phase 1 建立的文件：
-
-```
-HK-AICOS/
-├── agents/           ← Agent Prompt（直接使用）
-├── regulations/      ← 法規參考（直接使用）
-├── rag/              ← RAG 文件（手動查閱）
-├── skills/           ← 技能庫（直接使用）
-├── sop/              ← SOP（直接使用）
-└── governance/       ← AI 治理原則（直接使用）
-```
-
----
-
-## 成功指標（Phase 2.0）
-
-| 指標 | 目標 |
-|------|------|
-| 輸入格式化時間 | < 5 分鐘 |
-| AI 分析時間 | < 10 分鐘 |
-| 報告生成時間 | < 15 分鐘 |
-| 人工確認時間 | < 30 分鐘 |
-| 整體流程時間 | < 1 小時 |
-
----
-
-## 下一步（Phase 2.5 預告）
-
-Phase 2.5 將加入：
-- MCP 整合（自動讀取 RAG 文件）
-- RAG Ingestion Pipeline
-- Memory System（記錄歷史案例）
-- Dashboard（視覺化報告）
-- 半自動通知系統
-
-詳見 `PHASE_2_5_RESERVED.md`
-
----
-
-## 版本記錄
-
-- v2.0.0 - 2026-05-13 - Phase 2.0 文件骨架建立
+自動讀取及整理大量 PDF。
+自動 RAG 檢索。
+Memory、Dashboard、Database 整合。
+更深法規條文比對。
+更完整跨 Agent 自動協作。

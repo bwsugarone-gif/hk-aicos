@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HK-AICOS 工程分析報告 RPT-20260517-003111</title>
+<style>
+/* ── Font embedding ── */
+@font-face {
+    font-family: 'NotoSansCJKTC';
+    src: url('C:/Users/user/Desktop/buildway tech(HK) Limited/streamlit-app/assets/fonts/NotoSansTC-Regular.ttf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+/* ── Global ── */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+html, body {
+    font-family: 'NotoSansCJKTC', sans-serif;
+    font-size: 11pt;
+    color: #1a1a2e;
+    background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+/* ── Page layout ── */
+@page {
+    size: A4;
+    margin: 15mm 18mm;
+}
+
+/* ── Header ── */
+.header-company {
+    background: #1a3a5c;
+    color: #ffffff;
+    text-align: center;
+    padding: 9pt 0;
+    font-size: 13pt;
+}
+.header-title {
+    background: #2d5a8e;
+    color: #ffffff;
+    text-align: center;
+    padding: 13pt 0;
+    font-size: 20pt;
+}
+.header-accent {
+    background: #c9a84c;
+    height: 4pt;
+}
+
+/* ── Meta table ── */
+.meta-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14pt;
+    margin-bottom: 14pt;
+}
+.meta-table td {
+    padding: 7pt 8pt;
+    border: 0.5pt solid #d0d7e3;
+    vertical-align: middle;
+    font-size: 10pt;
+}
+.meta-table .label {
+    background: #eaf0fb;
+    color: #1a3a5c;
+    width: 80pt;
+    font-weight: bold;
+}
+.meta-table .value {
+    color: #1a1a2e;
+}
+.meta-table .risk-value {
+    background: #fde8eb;
+    color: #c0152a;
+    font-weight: bold;
+}
+
+/* ── Risk banner ── */
+.risk-banner {
+    background: #fde8eb;
+    border: 1.2pt solid #dc3545;
+    border-radius: 6pt;
+    text-align: center;
+    padding: 10pt;
+    margin-bottom: 14pt;
+}
+.risk-banner .risk-label {
+    font-size: 18pt;
+    font-weight: bold;
+    color: #c0152a;
+}
+.risk-banner .risk-desc {
+    font-size: 9pt;
+    color: #444466;
+    margin-top: 4pt;
+}
+
+/* ── Section headers ── */
+.section-header {
+    font-size: 14pt;
+    color: #1a3a5c;
+    margin-top: 14pt;
+    margin-bottom: 6pt;
+    padding-bottom: 3pt;
+    border-bottom: 1.5pt solid #c9a84c;
+}
+
+/* ── Body paragraphs ── */
+p {
+    font-size: 11pt;
+    line-height: 1.7;
+    margin-bottom: 5pt;
+    color: #1a1a2e;
+}
+
+/* ── Notice box ── */
+.notice-box {
+    background: #fff7dc;
+    border: 0.8pt solid #c9a84c;
+    border-radius: 4pt;
+    padding: 9pt;
+    margin-top: 14pt;
+    font-size: 10pt;
+    color: #5a3e00;
+    line-height: 1.6;
+}
+
+/* ── Footer ── */
+.footer {
+    text-align: center;
+    font-size: 8pt;
+    color: #888888;
+    margin-top: 12pt;
+}
+
+/* ── Dept tags ── */
+.dept-tag {
+    display: inline-block;
+    background: #eaf0fb;
+    color: #1a3a5c;
+    border: 0.5pt solid #d0d7e3;
+    border-radius: 10pt;
+    padding: 2pt 8pt;
+    font-size: 9pt;
+    margin: 2pt 3pt 2pt 0;
+}
+</style>
+</head>
+<body>
+
+<div class="header-company">Buildway Tech (HK) Limited</div>
+<div class="header-title">HK-AICOS 工程分析報告</div>
+<div class="header-accent"></div>
+
+<table class="meta-table">
+  <tr><td class="label">報告編號</td><td class="value">RPT-20260517-003111</td></tr>
+  <tr><td class="label">報告日期</td><td class="value">2026-05-17 00:31</td></tr>
+  <tr><td class="label">分析類型</td><td class="value">安全風險分析</td></tr>
+  <tr><td class="label">參與 Agent</td><td class="value">Safety Agent、Engineering Agent、PM Agent</td></tr>
+  <tr><td class="label">項目編號</td><td class="value">BW-TEST-001</td></tr>
+  <tr><td class="label">參考文件</td><td class="value">test.pdf</td></tr>
+  <tr><td class="label">可能涉及部門</td><td class="value">消防處、水務署、渠務署</td></tr>
+  <tr><td class="label">風險級別</td><td class="value risk-value">高風險</td></tr>
+</table>
+
+<div class="risk-banner">
+  <div class="risk-label">高風險</div>
+  <div class="risk-desc">可能涉及安全、法規、工期、成本或責任風險，需優先處理及保留紀錄。</div>
+</div>
+
+<div class="section-header">Safety Agent 分析</div>
+<p>工程分析</p><p>安全風險分析</p><p>法規與合規提醒</p><p>勞工處</p><p>屋宇署</p><p>消防處</p><p>EMSD</p><p>水務署</p><p>渠務署</p>
+<div class="section-header">Engineering Agent 分析</div>
+<p>未能取得 Engineering Agent 的完整段落，請補充施工方法、進度或工程資料後再分析。</p>
+<div class="section-header">PM Agent 分析</div>
+<p>未能取得 PM Agent 的完整段落，請補充項目背景、責任分工及決策要求後再分析。</p>
+
+
+<div class="section-header">可能涉及部門</div>
+<span class="dept-tag">消防處</span><span class="dept-tag">水務署</span><span class="dept-tag">渠務署</span><p>如不確定，需由相關專業人士確認實際監管部門。</p>
+
+<div class="section-header">需確認人士</div>
+<p>認可人士 (AP)</p>
+<p>安全主任</p>
+
+
+<div class="notice-box">
+本報告供項目管理及工程跟進使用。正式行動、對外回覆及合約立場，須由項目經理及相關合資格專業人士確認。
+</div>
+
+<div class="footer">
+Buildway Tech (HK) Limited &nbsp;|&nbsp; 2026-05-17 00:31 &nbsp;|&nbsp; RPT-20260517-003111
+</div>
+
+</body>
+</html>
