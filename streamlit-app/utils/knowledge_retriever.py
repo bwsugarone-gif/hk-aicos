@@ -9,6 +9,7 @@ from collections import Counter
 from .analysis_models import KnowledgeSnippet
 from .knowledge_models import KNOWLEDGE_TRUST_LABELS, KnowledgeSource
 from .knowledge_pack_store import DEFAULT_INDEX_PATH, read_knowledge_index
+from .query_expander import HOT_WORK_QUERY_TERMS, WORK_AT_HEIGHT_QUERY_TERMS, expand_safety_query, safety_query_profile
 
 
 _KNOWLEDGE_TERMS = ("磨機", "火花", "熱工", "切割", "高空", "臨邊", "防墮", "法例", "指引", "安全")
@@ -23,6 +24,7 @@ def search_knowledge(
     index_path=DEFAULT_INDEX_PATH,
 ) -> list[KnowledgeSource]:
     terms = _terms(query)
+    hot_work_query, height_query = safety_query_profile(query)
     wanted_topics = {item.lower() for item in topic_tags or []}
     wanted_trust = {item.lower() for item in trust_filter or []}
     ranked = []
@@ -32,8 +34,9 @@ def search_knowledge(
         if wanted_trust and source.trust_level.lower() not in wanted_trust:
             continue
         searchable = json.dumps(source.to_dict(), ensure_ascii=False).lower()
-        score = sum(5 if term in source.title.lower() else 1 for term in terms if term in searchable)
-        if terms and not score:
+        score = sum(5 if term in source.title.lower() else min(searchable.count(term), 4) for term in terms if term in searchable)
+        score += _topic_adjustment(searchable, hot_work_query, height_query)
+        if terms and score <= 0:
             continue
         ranked.append((score, source.last_indexed_at, source))
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
@@ -71,4 +74,15 @@ def _terms(value: str) -> list[str]:
     text = str(value or "").lower()
     tokens = [term for term in re.findall(r"[a-z0-9_./-]+|[\u3400-\u9fff]+", text) if len(term) >= 2]
     known = [term.lower() for term in _KNOWLEDGE_TERMS if term.lower() in text]
-    return list(dict.fromkeys([*known, *tokens]))[:20]
+    expanded = [item.lower() for item in expand_safety_query(text)]
+    return list(dict.fromkeys([*known, *tokens, *expanded]))[:40]
+
+
+def _topic_adjustment(searchable: str, hot_work_query: bool, height_query: bool) -> int:
+    hot_hits = sum(term in searchable for term in HOT_WORK_QUERY_TERMS)
+    height_hits = sum(term in searchable for term in WORK_AT_HEIGHT_QUERY_TERMS)
+    if hot_work_query and not height_query:
+        return hot_hits * 3 - (8 if height_hits and not hot_hits else 0)
+    if height_query and not hot_work_query:
+        return height_hits * 3 - (8 if hot_hits and not height_hits else 0)
+    return hot_hits + height_hits

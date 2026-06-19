@@ -112,7 +112,14 @@ compact_link_row((
 ))
 
 provider_health = get_provider_health()
-st.caption(provider_health.user_message)
+current_intent_type = str((st.session_state.get("ask_result") or {}).get("intent_type") or "")
+capability_status = [
+    "文字回答：已啟用" if provider_health.text_llm_available else "文字回答：使用本機備用模式",
+    "網上搜尋：已啟用" if provider_health.web_search_available else "網上搜尋：未設定",
+]
+if current_intent_type == "recent_image_question":
+    capability_status.insert(1, "AI 視覺：已啟用" if provider_health.vision_available else "AI 視覺：未設定")
+st.caption(" ".join(capability_status))
 if technical_diagnostics_enabled():
     with st.expander("管理員／開發者技術狀態", expanded=False):
         for note in provider_health.technical_notes:
@@ -313,6 +320,13 @@ if result:
         sources=source_data,
         rules_matched=risk_trace.rules_matched,
     )
+    non_image_intents = {"safety_definition_question", "legal_source_question", "sop_howto_question"}
+    if result.get("intent_type") in non_image_intents:
+        analysis_basis.vision_basis = []
+        analysis_basis.limitations = [
+            item for item in analysis_basis.limitations
+            if item != "未有 AI 視覺確認"
+        ]
     review_warnings = []
     if st.session_state.get("ask_answer_recovered"):
         review_warnings.append("部分搜尋內容暫時不可用，已改用安全的本機備用答案。")
@@ -354,7 +368,7 @@ if result:
         risk_badge(response_data["risk_level"])
     col_confidence.metric("回答信心", answer_display.confidence_label)
     col_mode.metric("回答模式", ANSWER_MODE_LABELS.get(result.get("answer_mode"), ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE]))
-    if result.get("intent_type") != "safety_definition_question":
+    if result.get("intent_type") not in non_image_intents:
         render_risk_evidence_trace(risk_trace, analysis_basis)
     st.markdown("#### 具體來源參考")
     if official_references:

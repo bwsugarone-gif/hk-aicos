@@ -12,6 +12,7 @@ from typing import Any, Iterable
 from .analysis_models import KnowledgeSnippet, QAResponse, SearchResult, SourceCitation
 from .answer_modes import ANSWER_MODE_LABELS, ANSWER_MODE_SECTIONS, DEFAULT_ANSWER_MODE, normalize_answer_mode
 from .official_sources import citation_from_source
+from .query_expander import HOT_WORK_QUERY_TERMS
 from .source_reference_extractor import (
     extract_source_reference,
     extract_source_references,
@@ -51,6 +52,10 @@ def answer_question(
         provider is None or not _has_official_or_trusted_context(contexts)
     ):
         return _working_at_height_definition_answer(search_scope, contexts, question)
+    if _is_hot_work_definition(question) and (
+        provider is None or not _has_relevant_hot_work_source(contexts)
+    ):
+        return _hot_work_definition_answer(search_scope, contexts, question)
     if provider is None:
         return _fallback_answer(question, question_type, search_scope, contexts, mode)
 
@@ -253,6 +258,8 @@ def _fallback_answer(
 ) -> QAResponse:
     if _is_working_at_height_definition(question):
         return _working_at_height_definition_answer(search_scope, contexts, question)
+    if _is_hot_work_definition(question):
+        return _hot_work_definition_answer(search_scope, contexts, question)
     sources = _context_citations(contexts, {_source_id(contexts[0])} if contexts else set())
     risk_level = _infer_risk(question, question_type)
     recommendations = _recommendations(question_type, question)
@@ -355,6 +362,80 @@ def _working_at_height_definition_answer(
         confidence=0.72 if _has_official_or_trusted_context(contexts) else 0.55,
         used_search_scope=search_scope,
         model_name="local-definition-fallback",
+        fallback_used=True,
+    )
+
+
+def _hot_work_definition_answer(
+    search_scope: str,
+    contexts: list[Any],
+    question: str,
+) -> QAResponse:
+    relevant_contexts = [
+        item for item in contexts
+        if citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
+        and _is_relevant_hot_work_context(item)
+    ]
+    source_lines = _source_reference_lines(relevant_contexts, question, 2)
+    if not relevant_contexts:
+        source_lines = [
+            "本次未能核實官方具體章節，請以最新官方文件、公司熱工許可制度及安全主任覆核為準。"
+        ]
+    answer = _render_sections((
+        ("最簡單講", [
+            "熱工序一般指會產生明火、火花、高溫或熱源的工序，例如焊接、切割、打磨、燒焊、使用磨機或其他可能引起火警的工作。",
+        ]),
+        ("判斷依據", [
+            "是否有明火、火花、高溫表面或熱源。",
+            "是否涉及焊接、切割、打磨、燒焊、磨機或砂輪機等工具。",
+            "附近是否有木材、紙皮、油漆、膠料、保溫棉、易燃物或已完成裝修面。",
+            "是否需要熱工許可、防火氈、滅火筒、防火監察及工後巡查。",
+        ]),
+        ("主要風險 / 影響", [
+            "火花引燃附近物料，煙霧或高溫影響其他工種。",
+            "碎屑或火花傷及眼、面部或手部，亦可能出現工具反彈或切割傷。",
+            "火花或高溫可能損壞門框、牆身或完成面。",
+        ]),
+        ("建議", [
+            "開工前確認是否需要熱工許可。",
+            "清走或遮蓋附近可燃物。",
+            "準備合適滅火筒及防火氈。",
+            "安排防火監察人。",
+            "工後巡查，確認沒有陰燃或餘火。",
+            "拍照記錄防火措施及整改結果。",
+        ]),
+        ("需確認事項", [
+            "工序是否會產生火花或高溫，以及附近是否有易燃物。",
+            "滅火筒是否在附近且有效，並有防火氈或遮蓋措施。",
+            "是否已批熱工許可及安排工後巡查。",
+        ]),
+        ("來源 / 限制", source_lines),
+    ))
+    selected_ids = {_source_id(item) for item in relevant_contexts}
+    sources = _context_citations(relevant_contexts, selected_ids)
+    if not sources:
+        sources = [SourceCitation(
+            source_id="fallback_hot_work_definition",
+            source_title="AICOS 熱工序安全定義備用說明",
+            source_type="fallback_only",
+            trust_level="fallback_only",
+            snippet=source_lines[0],
+            used_in_answer=True,
+            provider="local_rules",
+        )]
+    return QAResponse(
+        answer=answer,
+        practical_recommendations=[
+            "確認熱工許可並清理或遮蓋可燃物。",
+            "準備滅火筒、防火氈及防火監察。",
+            "完成工後巡查並保存照片記錄。",
+        ],
+        risk_level="unknown",
+        sources=sources,
+        followup_actions=["確認熱工許可、防火設備、防火監察及工後巡查安排。"],
+        confidence=0.72 if relevant_contexts else 0.55,
+        used_search_scope=search_scope,
+        model_name="local-hot-work-definition-fallback",
         fallback_used=True,
     )
 
@@ -570,11 +651,32 @@ def _is_working_at_height_definition(question: str) -> bool:
     return topic and definition
 
 
+def _is_hot_work_definition(question: str) -> bool:
+    lowered = str(question or "").lower()
+    topic = any(term in lowered for term in ("熱工", "熱工序", "hot work"))
+    definition = any(term in lowered for term in ("定義", "乜嘢係", "咩係", "什麼是", "甚麼是", "點定義"))
+    return topic and definition
+
+
 def _has_official_or_trusted_context(contexts: list[Any]) -> bool:
     return any(
         citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
         for item in contexts
     )
+
+
+def _has_relevant_hot_work_source(contexts: list[Any]) -> bool:
+    return any(
+        citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
+        and _is_relevant_hot_work_context(item)
+        for item in contexts
+    )
+
+
+def _is_relevant_hot_work_context(item: Any) -> bool:
+    citation = citation_from_source(item)
+    text = f"{citation.source_title} {citation.snippet}".lower()
+    return any(term in text for term in HOT_WORK_QUERY_TERMS)
 
 
 def _concise_text(value: Any, max_chars: int, max_sentences: int) -> str:

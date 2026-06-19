@@ -8,6 +8,7 @@ from collections import Counter
 from .analysis_models import KnowledgeSnippet
 from .rag_indexer import DEFAULT_RAG_PATH, read_rag_index
 from .rag_models import RagChunk
+from .query_expander import HOT_WORK_QUERY_TERMS, WORK_AT_HEIGHT_QUERY_TERMS, expand_safety_query, safety_query_profile
 
 
 _DOMAIN_TERMS = ("磨機", "火花", "熱工", "切割", "高空", "臨邊", "防墮", "安全", "法例", "指引", "棚架")
@@ -22,6 +23,7 @@ def search_rag(
     index_path=DEFAULT_RAG_PATH,
 ) -> list[RagChunk]:
     terms = _terms(query)
+    hot_work_query, height_query = safety_query_profile(query)
     trusts = {item.lower() for item in trust_filter or []}
     ranked = []
     for chunk in read_rag_index(index_path=index_path):
@@ -32,7 +34,8 @@ def search_rag(
         title = chunk.title.lower()
         text = (chunk.text + " " + " ".join(chunk.tags)).lower()
         score = sum(5 for term in terms if term in title) + sum(min(text.count(term), 6) for term in terms)
-        if terms and not score:
+        score += _topic_adjustment(f"{title} {text}", hot_work_query, height_query)
+        if terms and score <= 0:
             continue
         ranked.append((score, chunk.created_at, chunk))
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
@@ -66,4 +69,15 @@ def _terms(value: str) -> list[str]:
     text = str(value or "").lower()
     tokens = [term for term in re.findall(r"[a-z0-9_./-]+|[\u3400-\u9fff]+", text) if len(term) >= 2]
     known = [term for term in _DOMAIN_TERMS if term in text]
-    return list(dict.fromkeys([*known, *tokens]))[:24]
+    expanded = [item.lower() for item in expand_safety_query(text)]
+    return list(dict.fromkeys([*known, *tokens, *expanded]))[:40]
+
+
+def _topic_adjustment(searchable: str, hot_work_query: bool, height_query: bool) -> int:
+    hot_hits = sum(term in searchable for term in HOT_WORK_QUERY_TERMS)
+    height_hits = sum(term in searchable for term in WORK_AT_HEIGHT_QUERY_TERMS)
+    if hot_work_query and not height_query:
+        return hot_hits * 3 - (8 if height_hits and not hot_hits else 0)
+    if height_query and not hot_work_query:
+        return height_hits * 3 - (8 if hot_hits and not height_hits else 0)
+    return hot_hits + height_hits

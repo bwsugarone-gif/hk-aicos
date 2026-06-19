@@ -361,6 +361,14 @@ with ask_col:
             sources=quick_sources,
             rules_matched=quick_trace.rules_matched,
         )
+        quick_intent_type = str((st.session_state.get("ask_result") or {}).get("intent_type") or "")
+        non_image_intents = {"safety_definition_question", "legal_source_question", "sop_howto_question"}
+        if quick_intent_type in non_image_intents:
+            quick_basis.vision_basis = []
+            quick_basis.limitations = [
+                item for item in quick_basis.limitations
+                if item != "未有 AI 視覺確認"
+            ]
         official_titles = [
             str(item.get("source_title") or "").strip()
             for item in quick_sources
@@ -388,7 +396,8 @@ with ask_col:
             technical_status=get_service_readiness(),
         )
         render_answer_card(display, compact=True)
-        render_risk_evidence_trace(quick_trace, quick_basis, compact=True)
+        if quick_intent_type not in non_image_intents:
+            render_risk_evidence_trace(quick_trace, quick_basis, compact=True)
         quick_counts = (st.session_state.get("ask_result") or {}).get("retrieval_counts") or {}
         st.markdown("**分析依據**")
         for basis_line in (st.session_state.get("ask_result") or {}).get("context_basis") or []:

@@ -13,6 +13,7 @@ from .knowledge_search import search_local_knowledge
 from .knowledge_tracker import build_knowledge_context
 from .memory_indexer import build_project_memory_context
 from .project_memory_store import read_all_memory
+from .query_expander import HOT_WORK_QUERY_TERMS, WORK_AT_HEIGHT_QUERY_TERMS, safety_query_profile
 from .rag_retriever import build_rag_context
 from .site_memory import build_memory_context
 from .site_record_store import SiteRecordStore
@@ -61,6 +62,10 @@ def build_ask_context_selection(
         knowledge.extend(build_knowledge_pack_context(question, limit=limit))
         knowledge.extend(build_knowledge_context(question, project_ref, limit=limit))
         rag.extend(build_rag_context(question, project_ref, limit=limit))
+
+    knowledge = _rank_topic_contexts(knowledge, question)
+    rag = _rank_topic_contexts(rag, question)
+    supplied_web = _rank_topic_contexts(supplied_web, question, preserve_trust=True)
 
     if allow_records and intent.intent_type == "recent_image_question":
         session_context, visual_evidence_count = _latest_analysis_context(latest_analysis_result)
@@ -227,6 +232,33 @@ def _followups_for_latest(memory_id: str, project_ref: str | None, limit: int) -
 def _trusted_first(results: list[SearchResult]) -> list[SearchResult]:
     order = {"official_hk": 0, "trusted_industry": 1, "general_web": 2, "unknown": 3}
     return sorted(results, key=lambda item: order.get(str(getattr(item, "trust_level", "unknown")), 4))
+
+
+def _rank_topic_contexts(items: list[Any], question: str, preserve_trust: bool = False) -> list[Any]:
+    hot_work, height = safety_query_profile(question)
+    if not hot_work and not height:
+        return items
+    trust_order = {"official_hk": 4, "trusted_industry": 3, "local_internal": 2, "uploaded_record": 1}
+
+    def score(item: Any) -> tuple[int, float]:
+        text = " ".join((
+            str(getattr(item, "title", "") or ""),
+            str(getattr(item, "snippet", "") or ""),
+            str(getattr(item, "url", "") or ""),
+        )).lower()
+        hot_hits = sum(term in text for term in HOT_WORK_QUERY_TERMS)
+        height_hits = sum(term in text for term in WORK_AT_HEIGHT_QUERY_TERMS)
+        relevance = hot_hits * 4 + height_hits if hot_work and not height else (
+            height_hits * 4 + hot_hits if height and not hot_work else hot_hits + height_hits
+        )
+        if hot_work and not height and height_hits and not hot_hits:
+            relevance -= 10
+        if height and not hot_work and hot_hits and not height_hits:
+            relevance -= 10
+        trust = trust_order.get(str(getattr(item, "trust_level", "")), 0) if preserve_trust else 0
+        return trust * 5 + relevance, float(getattr(item, "score", 0.0) or 0.0)
+
+    return sorted(items, key=score, reverse=True)
 
 
 def _dedupe_contexts(items: list[Any]) -> list[Any]:
