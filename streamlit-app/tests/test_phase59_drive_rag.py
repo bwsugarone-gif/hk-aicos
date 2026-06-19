@@ -114,9 +114,11 @@ def test_ask_workspace_and_records_integrate_rag_without_raw_chunk_dump():
     ask = (APP_ROOT / "pages" / "10_Ask_AICOS.py").read_text(encoding="utf-8")
     workspace = (APP_ROOT / "pages" / "0_AICOS_Workspace.py").read_text(encoding="utf-8")
     records = (APP_ROOT / "pages" / "11_Records.py").read_text(encoding="utf-8")
+    bridge = (APP_ROOT / "utils" / "ask_context_bridge.py").read_text(encoding="utf-8")
     for source in (ask, workspace):
-        assert "build_rag_context(" in source
+        assert "build_ask_context_selection(" in source
         assert '"rag"' in source
-    assert "RAG 知識片段" in ask
+    assert "build_rag_context(" in bridge
+    assert "RAG 片段" in bridge
     assert "更新 SOP / RAG 索引" in records
     assert "read_rag_index()" in records

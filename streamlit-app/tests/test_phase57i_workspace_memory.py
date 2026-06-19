@@ -123,14 +123,15 @@ def test_workspace_and_memory_integration_contracts_are_present():
     workspace = (app_root / "pages" / "0_AICOS_Workspace.py").read_text(encoding="utf-8")
     ask_page = (app_root / "pages" / "10_Ask_AICOS.py").read_text(encoding="utf-8")
     upload_page = (app_root / "pages" / "1_Upload.py").read_text(encoding="utf-8")
+    bridge = (app_root / "utils" / "ask_context_bridge.py").read_text(encoding="utf-8")
 
     assert 'page_header("AICOS 工作台"' in workspace
     assert 'st.columns(2, gap="large")' in workspace
-    assert "build_memory_context" in workspace
-    assert "build_knowledge_context" in workspace
+    assert "build_ask_context_selection(" in workspace
     assert "Google Drive 欄位已預留" in workspace
-    assert "build_memory_context(question" in ask_page
-    assert "build_knowledge_context(question" in ask_page
+    assert "build_ask_context_selection(" in ask_page
+    assert "build_memory_context(" in bridge
+    assert "build_knowledge_context(" in bridge
     assert 'memory_type="qa_memory"' in ask_page
     assert 'memory_type="issue_memory" if risks else "followup_memory"' in upload_page
 

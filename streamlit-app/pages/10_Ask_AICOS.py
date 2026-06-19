@@ -19,12 +19,11 @@ try:
 except ImportError:
     pass
 
-from utils.analysis_models import KnowledgeSnippet, QAResponse, SearchResult
+from utils.analysis_models import QAResponse
+from utils.ask_context_bridge import build_ask_context_selection
+from utils.ask_intent_router import classify_ask_intent
 from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
-from utils.knowledge_search import search_local_knowledge
-from utils.knowledge_tracker import build_knowledge_context
-from utils.knowledge_retriever import build_knowledge_pack_context
 from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
@@ -33,18 +32,14 @@ from utils.official_sources import (
     SOURCE_MODE_LABELS_ZH,
     TRUST_LABELS_ZH,
     default_source_mode,
-    source_id_for,
 )
 from utils.search_query_builder import build_hk_official_query
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
-from utils.followup_store import build_followup_context
-from utils.memory_indexer import build_project_memory_context
 from utils.project_memory_store import append_memory
 from utils.provider_health import get_provider_health, technical_diagnostics_enabled
-from utils.rag_retriever import build_rag_context
 from utils.service_readiness import get_service_readiness
-from utils.site_memory import build_memory_context, save_memory_item
-from utils.site_record_store import SiteRecordStore, save_qa_session_record
+from utils.site_memory import save_memory_item
+from utils.site_record_store import save_qa_session_record
 from utils.source_reference_extractor import (
     extract_source_reference,
     extract_source_references,
@@ -207,63 +202,40 @@ if submitted:
     if not question.strip():
         st.error("請先輸入問題。")
     else:
-        local_sources: list[KnowledgeSnippet] = []
-        record_sources: list[KnowledgeSnippet] = []
-        project_memory_sources: list[KnowledgeSnippet] = []
-        followup_sources: list[KnowledgeSnippet] = []
-        knowledge_pack_sources: list[KnowledgeSnippet] = []
-        rag_sources: list[KnowledgeSnippet] = []
-        web_sources: list[SearchResult] = []
-        if search_scope in {"local_knowledge", "all"}:
-            local_sources = search_local_knowledge(question, limit=5)
-            knowledge_pack_sources = build_knowledge_pack_context(question, limit=5)
-            rag_sources = build_rag_context(question, project_id or None, limit=5)
-        if search_scope in {"uploaded_records", "all"}:
-            for record in SiteRecordStore().search_records(keyword=question, limit=5):
-                record_sources.append(
-                    KnowledgeSnippet(
-                        title=record.title,
-                        path=f"本機記錄 {record.record_id}",
-                        snippet=record.content_summary,
-                        score=5.0,
-                        source_type="uploaded_record",
-                        source_id=source_id_for(record.record_id, "record"),
-                        trust_level="uploaded_record",
-                        provider="site_record_store",
-                    )
-                )
-            record_sources.extend(build_memory_context(question, project_id or None, limit=5))
-            record_sources.extend(build_knowledge_context(question, project_id or None, limit=5))
-            project_memory_sources = build_project_memory_context(question, project_id or None, limit=5)
-            followup_sources = build_followup_context(question, project_id or None, limit=5)
+        web_sources = []
+        latest_analysis = (
+            st.session_state.get("workspace_analysis_result")
+            or st.session_state.get("last_analysis")
+        )
+        preliminary_intent = classify_ask_intent(question, has_recent_upload=bool(latest_analysis))
+        effective_question_type = (
+            "law_regulation" if preliminary_intent.intent_type == "legal_source_question"
+            else ("safety" if preliminary_intent.intent_type in {
+                "safety_definition_question", "sop_howto_question", "general_safety_question",
+            } else question_type)
+        )
         if search_scope in {"web_search", "all"}:
-            searched_query = build_hk_official_query(question, question_type, source_mode)
+            searched_query = build_hk_official_query(question, effective_question_type, source_mode)
             web_response = web_search(searched_query, limit=5, mode=source_mode)
             web_sources = web_response.results
             st.session_state["ask_web_status"] = web_response.to_dict()
         else:
             st.session_state.pop("ask_web_status", None)
 
-        contexts = [
-            *local_sources,
-            *knowledge_pack_sources,
-            *rag_sources,
-            *record_sources,
-            *project_memory_sources,
-            *followup_sources,
-            *web_sources,
-        ]
-        retrieval_counts = {
-            "memory": len(project_memory_sources),
-            "followups": len(followup_sources),
-            "knowledge": len(local_sources) + len(knowledge_pack_sources),
-            "rag": len(rag_sources),
-            "official": sum(1 for item in contexts if getattr(item, "trust_level", "") == "official_hk"),
-        }
+        context_selection = build_ask_context_selection(
+            question,
+            search_scope=search_scope,
+            project_ref=project_id or None,
+            latest_analysis_result=latest_analysis if isinstance(latest_analysis, dict) else None,
+            web_sources=web_sources,
+            limit=5,
+        )
+        contexts = context_selection.contexts
+        retrieval_counts = context_selection.retrieval_counts
         with st.spinner("AICOS 正在整理資料及建立現場建議…"):
             response, recovered_from_error = safe_answer_question(
                 question=question,
-                question_type=question_type,
+                question_type=effective_question_type,
                 search_scope=search_scope,
                 context_snippets=contexts,
                 answer_mode=answer_mode,
@@ -271,21 +243,18 @@ if submitted:
         st.session_state["ask_answer_recovered"] = recovered_from_error
         st.session_state["ask_result"] = {
             "question": question,
-            "question_type": question_type,
+            "question_type": effective_question_type,
             "search_scope": search_scope,
             "source_mode": source_mode,
             "answer_mode": answer_mode,
             "response": response.to_dict(),
             "retrieval_counts": retrieval_counts,
+            "intent_type": context_selection.intent.intent_type,
+            "context_basis": context_selection.context_basis,
             "project_ref": project_id or None,
         }
-        st.session_state["ask_local_sources"] = [
-            item.to_dict() for item in [
-                *local_sources, *knowledge_pack_sources, *rag_sources, *record_sources,
-                *project_memory_sources, *followup_sources,
-            ]
-        ]
-        st.session_state["ask_web_sources"] = [item.to_dict() for item in web_sources]
+        st.session_state["ask_local_sources"] = [item.to_dict() for item in context_selection.local_contexts]
+        st.session_state["ask_web_sources"] = [item.to_dict() for item in context_selection.web_contexts]
         st.session_state.pop("ask_saved_record_id", None)
         st.session_state.pop("ask_memory_id", None)
         if remember_answer:
@@ -295,7 +264,7 @@ if submitted:
                 project_id=project_id,
                 title=f"問 AICOS：{question.strip()[:80]}",
                 summary=response.answer[:1200],
-                tags=[question_type, answer_mode],
+                tags=[effective_question_type, answer_mode],
                 risk_level=response.risk_level,
                 status="answered",
                 related_source_ids=[
@@ -316,7 +285,7 @@ if submitted:
                 "risk_level": response.risk_level,
                 "confidence": response.confidence,
                 "evidence_sources": [item.source_type for item in contexts],
-                "tags": [question_type, answer_mode],
+                "tags": [effective_question_type, answer_mode],
                 "status": "resolved",
                 "priority": "high" if response.risk_level in {"high", "critical"} else "medium",
                 "source_route": "/Ask_AICOS",
@@ -374,11 +343,8 @@ if result:
     render_answer_card(answer_display)
 
     st.markdown("#### 分析依據")
-    st.markdown(f"- 地盤記憶：找到 {int(retrieval_counts.get('memory', 0))} 條相關記錄")
-    st.markdown(f"- 跟進事項：找到 {int(retrieval_counts.get('followups', 0))} 條未完成")
-    st.markdown(f"- 知識來源：找到 {int(retrieval_counts.get('knowledge', 0))} 個可能相關來源")
-    st.markdown(f"- RAG 知識片段：{int(retrieval_counts.get('rag', 0))} 條")
-    st.markdown("- 官方來源：" + ("有" if retrieval_counts.get("official") else "未核實"))
+    for basis_line in result.get("context_basis") or []:
+        st.markdown(f"- {basis_line}")
     if not any(int(retrieval_counts.get(key, 0)) for key in ("memory", "followups", "knowledge", "rag")):
         st.info("目前未找到相關工程記憶或知識來源；以下為一般建議，需由現場負責人覆核。")
 
@@ -388,7 +354,8 @@ if result:
         risk_badge(response_data["risk_level"])
     col_confidence.metric("回答信心", answer_display.confidence_label)
     col_mode.metric("回答模式", ANSWER_MODE_LABELS.get(result.get("answer_mode"), ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE]))
-    render_risk_evidence_trace(risk_trace, analysis_basis)
+    if result.get("intent_type") != "safety_definition_question":
+        render_risk_evidence_trace(risk_trace, analysis_basis)
     st.markdown("#### 具體來源參考")
     if official_references:
         for reference in official_references[:3]:

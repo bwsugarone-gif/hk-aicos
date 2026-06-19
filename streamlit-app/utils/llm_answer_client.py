@@ -47,6 +47,10 @@ def answer_question(
         )
 
     provider = _select_provider()
+    if _is_working_at_height_definition(question) and (
+        provider is None or not _has_official_or_trusted_context(contexts)
+    ):
+        return _working_at_height_definition_answer(search_scope, contexts, question)
     if provider is None:
         return _fallback_answer(question, question_type, search_scope, contexts, mode)
 
@@ -247,6 +251,8 @@ def _fallback_answer(
     contexts: list[Any],
     answer_mode: str = DEFAULT_ANSWER_MODE,
 ) -> QAResponse:
+    if _is_working_at_height_definition(question):
+        return _working_at_height_definition_answer(search_scope, contexts, question)
     sources = _context_citations(contexts, {_source_id(contexts[0])} if contexts else set())
     risk_level = _infer_risk(question, question_type)
     recommendations = _recommendations(question_type, question)
@@ -283,6 +289,72 @@ def _fallback_answer(
         confidence=0.48 if contexts else 0.3,
         used_search_scope=search_scope,
         model_name="local-fallback",
+        fallback_used=True,
+    )
+
+
+def _working_at_height_definition_answer(
+    search_scope: str,
+    contexts: list[Any],
+    question: str,
+) -> QAResponse:
+    trusted_contexts = [
+        item for item in contexts
+        if citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
+    ]
+    source_lines = _source_reference_lines(trusted_contexts, question, 2)
+    answer = _render_sections((
+        ("最簡單講", [
+            "高處工作一般指在離地面不少於 2 米之處工作；但少於 2 米的離地工作，如有墮下風險，仍須評估並採取防墮措施。",
+        ]),
+        ("判斷依據", [
+            "是否離地不少於 2 米，以及是否涉及臨邊、洞口、棚架、吊船、升降台、工作平台或梯具。",
+            "是否有人員墮下或物件墮下風險。",
+        ]),
+        ("主要風險 / 影響", [
+            "人員墮下、物件墮下、平台不穩及進出通道不安全。",
+        ]),
+        ("建議", [
+            "使用穩固工作平台，並設護欄、踢腳板及安全進出通道。",
+            "不能設置合適平台時，按風險使用合適安全帶、救生繩或防墮系統。",
+            "開工前由管工／安全主任覆核工作位置及防墮安排。",
+        ]),
+        ("需確認事項", [
+            "工作高度及工作位置。",
+            "平台、棚架或梯具狀態，以及臨邊／洞口防護。",
+            "人員訓練及個人防護裝備。",
+        ]),
+        ("來源 / 限制", source_lines),
+    ))
+    selected_ids = {
+        _source_id(item)
+        for item in trusted_contexts
+        if citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
+    }
+    sources = _context_citations(trusted_contexts, selected_ids)
+    if not sources:
+        sources = [SourceCitation(
+            source_id="fallback_work_at_height_definition",
+            source_title="AICOS 高處工作安全定義備用說明",
+            source_type="fallback_only",
+            trust_level="fallback_only",
+            snippet=UNCONFIRMED_REFERENCE_NOTICE,
+            used_in_answer=True,
+            provider="local_rules",
+        )]
+    return QAResponse(
+        answer=answer,
+        practical_recommendations=[
+            "使用穩固工作平台及合適集體防護。",
+            "不能設平台時按風險使用合適防墮系統。",
+            "由管工／安全主任覆核。",
+        ],
+        risk_level="unknown",
+        sources=sources,
+        followup_actions=["確認高度、工作位置、平台／棚架／梯具及臨邊／洞口防護。"],
+        confidence=0.72 if _has_official_or_trusted_context(contexts) else 0.55,
+        used_search_scope=search_scope,
+        model_name="local-definition-fallback",
         fallback_used=True,
     )
 
@@ -489,6 +561,20 @@ def _context_citations(contexts: list[Any], used_ids: set[str] | None = None) ->
 def _is_working_at_height(question: str) -> bool:
     lowered = str(question or "").lower()
     return any(term in lowered for term in ("高空", "高處", "臨邊", "防墮", "墮下", "working at height", "fall prevention"))
+
+
+def _is_working_at_height_definition(question: str) -> bool:
+    lowered = str(question or "").lower()
+    topic = any(term in lowered for term in ("高空工作", "高處工作", "離地工作", "working at height"))
+    definition = any(term in lowered for term in ("定義", "乜嘢係", "什麼是", "甚麼是", "點定義"))
+    return topic and definition
+
+
+def _has_official_or_trusted_context(contexts: list[Any]) -> bool:
+    return any(
+        citation_from_source(item).trust_level in {"official_hk", "trusted_industry"}
+        for item in contexts
+    )
 
 
 def _concise_text(value: Any, max_chars: int, max_sentences: int) -> str:

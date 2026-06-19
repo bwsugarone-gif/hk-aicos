@@ -145,13 +145,15 @@ def test_insufficient_evidence_creates_manual_review_followup_without_specific_h
 def test_ask_and_workspace_have_memory_aware_contracts_and_six_section_formatter():
     ask = (APP_ROOT / "pages/10_Ask_AICOS.py").read_text(encoding="utf-8")
     workspace = (APP_ROOT / "pages/0_AICOS_Workspace.py").read_text(encoding="utf-8")
+    bridge = (APP_ROOT / "utils/ask_context_bridge.py").read_text(encoding="utf-8")
     formatter = (APP_ROOT / "utils/answer_formatter.py").read_text(encoding="utf-8")
     for source in (ask, workspace):
-        assert "build_project_memory_context(" in source
-        assert "build_followup_context(" in source
-        assert "build_knowledge_pack_context(" in source
+        assert "build_ask_context_selection(" in source
         assert "retrieval_counts" in source
         assert "append_memory(" in source
+    assert "build_project_memory_context(" in bridge
+    assert "build_followup_context(" in bridge
+    assert "build_knowledge_pack_context(" in bridge
     for heading in ("最簡單講", "判斷依據", "主要風險 / 影響", "建議", "需確認事項", "來源 / 限制"):
         assert heading in formatter
     for forbidden in ("ModuleNotFoundError", "Tavily 已連接", "Brave 已連接"):
