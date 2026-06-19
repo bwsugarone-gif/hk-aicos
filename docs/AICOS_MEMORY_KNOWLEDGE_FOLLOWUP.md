@@ -34,6 +34,12 @@ Records 以「地盤記錄」、「AICOS 記憶」、「跟進事項」及「知
 
 上載相片時，如已設定 `GEMINI_API_KEY`，Vision client 可透過輕量 REST request 擷取可見證據、分類及不確定性。Prompt 要求只回報相片可見內容；失敗時不會中止流程，而會改用現場描述、OCR evidence gate 及人工覆核。原有 Anthropic Vision 支援仍保留。
 
+## Phase 5.9E production chain
+
+Workspace 與完整 Upload 頁現共用 `analysis_pipeline.py`，順序為：文字偵測 → AI 視覺 → 使用者補充 → evidence extraction → risk trace → agent answer formatter → memory／follow-up／record。Workspace 拖放檔案後可直接開始分析，不再要求到另一頁重新上載。
+
+Provider readiness 會同時檢查環境變數及 Streamlit Cloud Secrets；一般畫面只顯示能力是否啟用。設定 `AICOS_ADMIN_DIAGNOSTICS=true` 後，管理員可開啟收合的技術狀態，查看設定來源是否存在、服務標籤、Vision 最近嘗試結果及經清理的錯誤類別；畫面不顯示 credential 或 raw exception。舊版／部分 JSONL 欄位會轉換成安全預設，損壞行則跳過。
+
 ## Ask AICOS 流程
 
 Ask AICOS 會按問題及 `project_ref` 擷取相關工程記憶、未完成跟進、Knowledge Pack、本機 SOP/RAG 片段、舊有知識及已選擇的網上來源，再交給既有回答 client。畫面只顯示命中數量、來源／限制及六段實務回答，不顯示 raw chunks、provider secrets 或 raw errors。啟用「儲存為記憶」後，問答摘要會寫入 Project Memory。

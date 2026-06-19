@@ -29,15 +29,16 @@ def test_sidebar_uses_shared_dark_style_and_keeps_simplified_navigation():
     assert dict(SECONDARY_PAGES)["ask"] == "pages/10_Ask_AICOS.py"
 
 
-def test_workspace_has_prominent_upload_cta_and_safe_handoff():
+def test_workspace_has_single_direct_upload_action_and_full_page_link():
     source = _source("pages/0_AICOS_Workspace.py")
     assert "上載相片 / 文件" in source
-    assert "立即上載分析" in source
+    assert "立即上載分析" not in source
+    assert "開始分析" in source
     assert "前往完整上載頁" in source
     assert "st.file_uploader(" in source
     assert 'type=["jpg", "jpeg", "png", "pdf", "docx", "xlsx"]' in source
-    assert 'st.session_state["workspace_upload_handoff"]' in source
-    assert 'st.switch_page("pages/1_Upload.py")' in source
+    assert "process_uploaded_file_for_analysis(" in source
+    assert 'st.session_state["workspace_analysis_result"]' in source
 
 
 def test_manual_grinder_sparks_trace_explains_high_risk_without_provider_names():

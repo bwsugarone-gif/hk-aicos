@@ -32,5 +32,13 @@ class KnowledgeSource:
 
     @classmethod
     def from_dict(cls, value: dict) -> "KnowledgeSource":
-        fields = cls.__dataclass_fields__
-        return cls(**{key: value[key] for key in fields if key in value})
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return cls(
+            source_id=str(payload.get("source_id") or ""), title=str(payload.get("title") or "未命名知識來源"),
+            source_type=str(payload.get("source_type") or "project_note"),
+            path_or_url=payload.get("path_or_url") or payload.get("local_path") or payload.get("google_drive_url"),
+            trust_level=str(payload.get("trust_level") or "unverified"), jurisdiction=payload.get("jurisdiction"),
+            trade_tags=list(payload.get("trade_tags") or []), topic_tags=list(payload.get("topic_tags") or payload.get("tags") or []),
+            summary=str(payload.get("summary") or ""), extracted_refs=list(payload.get("extracted_refs") or []),
+            last_indexed_at=str(payload.get("last_indexed_at") or payload.get("created_at") or ""),
+        )

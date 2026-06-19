@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 
 
 FOLLOWUP_STATUSES = {"open", "in_progress", "waiting", "resolved", "cancelled"}
@@ -33,6 +33,25 @@ class FollowUpItem:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict) -> "FollowUpItem":
-        fields = cls.__dataclass_fields__
-        return cls(**{key: value[key] for key in fields if key in value})
+    def from_dict(cls, value) -> "FollowUpItem":
+        if isinstance(value, cls):
+            return value
+        if is_dataclass(value):
+            value = asdict(value)
+        elif not isinstance(value, dict):
+            value = getattr(value, "__dict__", {})
+        payload = dict(value or {})
+        created = str(payload.get("created_at") or payload.get("updated_at") or "")
+        return cls(
+            followup_id=str(payload.get("followup_id") or payload.get("record_id") or ""),
+            created_at=created, updated_at=str(payload.get("updated_at") or created),
+            project_ref=payload.get("project_ref") or payload.get("project_id") or None,
+            title=str(payload.get("title") or "需跟進事項"),
+            description=str(payload.get("description") or payload.get("summary") or ""),
+            source_memory_id=payload.get("source_memory_id"), source_record_id=payload.get("source_record_id"),
+            risk_level=payload.get("risk_level"), priority=str(payload.get("priority") or "medium"),
+            status=str(payload.get("status") or "open"), responsible_role=payload.get("responsible_role"),
+            due_hint=payload.get("due_hint"), evidence_required=list(payload.get("evidence_required") or []),
+            suggested_actions=list(payload.get("suggested_actions") or []),
+            closeout_notes=payload.get("closeout_notes"), history=list(payload.get("history") or []),
+        )

@@ -26,5 +26,13 @@ class RagChunk:
 
     @classmethod
     def from_dict(cls, value: dict) -> "RagChunk":
-        fields = cls.__dataclass_fields__
-        return cls(**{key: value[key] for key in fields if key in value})
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return cls(
+            chunk_id=str(payload.get("chunk_id") or ""), source_id=str(payload.get("source_id") or ""),
+            title=str(payload.get("title") or "未命名片段"), source_type=str(payload.get("source_type") or "project_note"),
+            trust_level=str(payload.get("trust_level") or "unverified"), project_ref=payload.get("project_ref") or payload.get("project_id"),
+            section_ref=payload.get("section_ref"), page_ref=payload.get("page_ref"),
+            text=str(payload.get("text") or payload.get("summary") or ""), summary=str(payload.get("summary") or ""),
+            tags=list(payload.get("tags") or []), created_at=str(payload.get("created_at") or ""),
+            metadata=dict(payload.get("metadata") or {}),
+        )

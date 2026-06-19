@@ -132,7 +132,9 @@ def read_rag_index(*, index_path: str | Path = DEFAULT_RAG_PATH) -> list[RagChun
         return []
     for line in lines:
         try:
-            chunks.append(RagChunk.from_dict(json.loads(line)))
+            chunk = RagChunk.from_dict(json.loads(line))
+            if chunk.chunk_id and chunk.text:
+                chunks.append(chunk)
         except (json.JSONDecodeError, TypeError, ValueError, KeyError):
             continue
     return chunks

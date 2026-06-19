@@ -21,6 +21,7 @@ except ImportError:
     pass
 
 from utils.analysis_models import KnowledgeSnippet
+from utils.analysis_pipeline import process_uploaded_file_for_analysis
 from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
@@ -35,7 +36,7 @@ from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace,
 from utils.followup_store import build_followup_context, list_followups, summarize_followups, update_followup_status
 from utils.memory_indexer import build_project_memory_context
 from utils.project_memory_store import append_memory, summarize_project_memory
-from utils.provider_health import get_provider_health
+from utils.provider_health import get_provider_health, technical_diagnostics_enabled
 from utils.rag_indexer import build_rag_index_from_knowledge_sources, read_rag_index
 from utils.rag_retriever import build_rag_context
 from utils.runtime_storage_health import get_runtime_storage_status
@@ -45,6 +46,7 @@ from utils.site_memory import build_memory_context, list_memory_items, save_memo
 from utils.site_record_store import SiteRecordStore
 from utils.web_search_adapter import web_search
 from utils.workspace_preview import build_recent_analysis_preview
+from utils.vision_client import get_vision_readiness
 from utils.ui_components import (
     compact_link_row,
     page_header,
@@ -106,9 +108,13 @@ compact_link_row((
 
 provider_health = get_provider_health()
 st.caption(provider_health.user_message)
-with st.expander("技術狀態", expanded=False):
-    for note in provider_health.technical_notes:
-        st.caption(note)
+if technical_diagnostics_enabled():
+    with st.expander("管理員／開發者技術狀態", expanded=False):
+        for note in provider_health.technical_notes:
+            st.caption(note)
+        vision_readiness = get_vision_readiness()
+        st.caption("Vision configured：" + ("yes" if vision_readiness["configured"] else "no"))
+        st.caption("Vision last attempt：" + str(vision_readiness["last_attempt"]))
 
 st.divider()
 upload_col, ask_col = st.columns(2, gap="large")
@@ -120,8 +126,6 @@ with upload_col:
             '<p>拖放相片或文件，AICOS 會協助整理相片所見、風險及跟進建議。</p></div>',
             unsafe_allow_html=True,
         )
-        if st.button("立即上載分析", type="primary", use_container_width=True):
-            st.switch_page("pages/1_Upload.py")
         workspace_file = st.file_uploader(
             "拖放檔案到這裡",
             type=["jpg", "jpeg", "png", "pdf", "docx", "xlsx"],
@@ -132,17 +136,79 @@ with upload_col:
             if workspace_file.size > WORKSPACE_UPLOAD_MAX_BYTES:
                 st.error("檔案超過 50MB，請壓縮或分批上載。")
             else:
-                st.session_state["workspace_upload_handoff"] = {
-                    "name": workspace_file.name,
-                    "size": workspace_file.size,
-                    "mime_type": workspace_file.type,
-                    "data": workspace_file.getvalue(),
-                }
-                st.success(f"已收到檔案：{workspace_file.name}；請按「開始分析」。")
+                workspace_manual = st.text_area(
+                    "補充現場描述（選填）",
+                    key="workspace_upload_manual_description",
+                    help="如 AI 視覺未設定，請補充工序、位置、工具、火花、附近物料及防護措施。",
+                )
+                workspace_project = st.text_input(
+                    "工程編號（選填）",
+                    key="workspace_upload_project_ref",
+                    placeholder="例如：BW-001",
+                )
+                st.success(f"已收到檔案：{workspace_file.name}")
                 if st.button("開始分析", type="primary", use_container_width=True):
-                    st.switch_page("pages/1_Upload.py")
+                    with st.spinner("AICOS 正在執行文字偵測、AI 視覺及風險證據分析…"):
+                        pipeline_result = process_uploaded_file_for_analysis(
+                            workspace_file,
+                            workspace_file.name,
+                            workspace_manual,
+                            workspace_project or None,
+                            "請分析此地盤相片或文件的可見證據及需跟進事項。",
+                            "工地安全分析",
+                            provider_health,
+                            True,
+                        )
+                    pipeline_data = pipeline_result.to_dict()
+                    st.session_state["workspace_analysis_result"] = pipeline_data
+                    st.session_state["last_analysis"] = {
+                        "file_name": workspace_file.name,
+                        "analysis_type": "site_safety",
+                        "analysis_display_name": "工地安全分析",
+                        "risk_level": pipeline_result.risk_level,
+                        "analysis_result": pipeline_result.agent_answer,
+                        "image_analysis": pipeline_result.image_analysis,
+                        "project_ref": workspace_project or None,
+                        "memory_record_id": pipeline_result.memory_record_id,
+                        "followup_ids": pipeline_result.followup_ids,
+                    }
+                    st.rerun()
         st.page_link("pages/1_Upload.py", label="前往完整上載頁", use_container_width=True)
-    recent_analysis = st.session_state.get("last_analysis")
+
+    workspace_analysis = st.session_state.get("workspace_analysis_result")
+    if isinstance(workspace_analysis, dict):
+        st.markdown("#### 本次分析")
+        st.caption("文字偵測：" + str(workspace_analysis.get("text_detection_summary") or "未有結果"))
+        st.caption("AI 視覺：" + str(workspace_analysis.get("vision_summary") or "未有結果"))
+        st.caption("使用者補充：" + str(workspace_analysis.get("manual_description_summary") or "未有補充"))
+        for warning in workspace_analysis.get("warnings") or []:
+            st.warning(warning)
+        st.markdown("**相片所見**")
+        for item in (workspace_analysis.get("observations") or ["未有足夠可觀察資料。"])[:4]:
+            st.markdown(f"- {item}")
+        st.markdown(f"**風險級別：{workspace_analysis.get('risk_level') or '需人工覆核'}**")
+        try:
+            from utils.evidence_models import AnalysisBasis, RiskEvidenceTrace
+
+            trace = RiskEvidenceTrace(**dict(workspace_analysis.get("risk_evidence_trace") or {}))
+            basis = AnalysisBasis(**dict(workspace_analysis.get("analysis_basis") or {}))
+            display = format_answer_display(
+                str(workspace_analysis.get("agent_answer") or ""),
+                risk_level=str(workspace_analysis.get("risk_level") or "需人工覆核"),
+                confidence=float(workspace_analysis.get("visual_confidence") or 0.0),
+                fallback_used=not bool(workspace_analysis.get("technical_status", {}).get("text_llm_available")),
+                risk_trace=trace,
+                analysis_basis=basis,
+                technical_status=get_service_readiness(),
+            )
+            render_answer_card(display, compact=True)
+            render_risk_evidence_trace(trace, basis, compact=True)
+        except (TypeError, ValueError):
+            st.info("分析依據暫時未能顯示；請在完整報告查看記錄。")
+        if workspace_analysis.get("memory_record_id"):
+            st.success("分析已儲存至工程記憶，並建立跟進事項。")
+        st.page_link("pages/2_Report.py", label="查看完整分析報告", use_container_width=True)
+    recent_analysis = None if isinstance(workspace_analysis, dict) else st.session_state.get("last_analysis")
     if isinstance(recent_analysis, dict):
         preview = build_recent_analysis_preview(recent_analysis)
         st.markdown("#### 最近分析預覽")
@@ -164,7 +230,7 @@ with upload_col:
         recent_trace, recent_basis = build_trace_from_analysis(recent_analysis)
         render_risk_evidence_trace(recent_trace, recent_basis, compact=True)
         st.page_link("pages/2_Report.py", label="查看完整分析報告", use_container_width=True)
-    else:
+    elif not isinstance(workspace_analysis, dict):
         recent_records = SiteRecordStore().list_records(limit=1)
         if recent_records:
             record = recent_records[0]
@@ -447,7 +513,7 @@ with summary_col:
 memory_tab, source_tab, followup_tab = st.tabs(["最近記憶", "知識來源", "最近跟進"])
 with memory_tab:
     if not memory_items:
-        st.info("尚未建立 AICOS 記憶。完成問答或儲存圖片分析後便會顯示。")
+        st.info("暫時未有相關工程記憶。")
     for item in memory_items[:5]:
         st.markdown(f"**{item.title}**")
         st.caption(f"{item.memory_type} · {item.created_at[:19].replace('T', ' ')} · {item.status or '未分類'}")

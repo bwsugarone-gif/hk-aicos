@@ -63,7 +63,7 @@ from utils.project_manager import (
     save_session as save_project_session,
 )
 from utils.action_manager import auto_create_action_from_session, load_action_items
-from utils.image_understanding import process_image_with_understanding
+from utils.analysis_pipeline import analyze_file_data_for_pipeline
 from utils.image_safety_hardening import (
     build_concise_image_summary,
     filter_unsupported_payload,
@@ -72,7 +72,7 @@ from utils.image_safety_hardening import (
 )
 from utils.site_memory import save_memory_item
 from utils.site_record_store import save_image_analysis_record
-from utils.vision_client import generate_anthropic_message
+from utils.vision_client import generate_anthropic_message, generate_gemini_text, get_vision_readiness
 from utils.site_context_engine import (
     analyse_site_context,
     apply_context_risk_to_level,
@@ -93,7 +93,7 @@ from utils.repeated_issue_detector import (
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace, build_trace_from_analysis
 from utils.followup_store import generate_followups_from_risk_trace
 from utils.memory_indexer import remember_analysis
-from utils.provider_health import get_provider_health
+from utils.provider_health import get_provider_health, get_secret_value, technical_diagnostics_enabled
 from utils.ui_components import compact_link_row, page_header, render_product_footer, render_risk_evidence_trace
 
 st.set_page_config(
@@ -243,16 +243,17 @@ compact_link_row([
 ])
 provider_health = get_provider_health()
 st.caption(provider_health.user_message)
-with st.expander("技術狀態", expanded=False):
-    for note in provider_health.technical_notes:
-        st.caption(note)
-workspace_handoff = st.session_state.get("workspace_upload_handoff")
-if isinstance(workspace_handoff, dict) and workspace_handoff.get("name"):
-    st.info(
-        f"工作台已收到「{workspace_handoff['name']}」。"
-        "請在下方選擇同一檔案，啟動完整分析流程。"
-    )
-
+if technical_diagnostics_enabled():
+    with st.expander("管理員／開發者技術狀態", expanded=False):
+        for note in provider_health.technical_notes:
+            st.caption(note)
+        vision_readiness = get_vision_readiness()
+        st.caption("Vision configured：" + ("yes" if vision_readiness["configured"] else "no"))
+        st.caption("Vision last attempt：" + str(vision_readiness["last_attempt"]))
+        if vision_readiness.get("error_category"):
+            st.caption("Vision error category：" + str(vision_readiness["error_category"]))
+        if st.button("測試 AI 視覺設定", key="check_vision_configuration"):
+            st.info("AI 視覺設定已找到。" if vision_readiness["configured"] else "AI 視覺尚未設定；雲端需在 Streamlit Secrets 設定。")
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
 MAX_FILES = 3
 MAX_TOTAL_SIZE_MB = 50
@@ -275,7 +276,7 @@ uploaded_files = st.file_uploader(
 manual_image_context = st.text_area(
     "補充現場描述 / 工序資料（選填）",
     placeholder="例如：工人正在室內用磨機切門框，現場有火花，未見滅火筒。",
-    help="當 AI 視覺未設定或相片內容不清晰時，此描述會作為使用者提供的證據；請只填寫已知事實。",
+    help="如 AI 視覺未設定，請補充工序、位置、工具、火花、附近物料及防護措施。請只填寫已知事實。",
     key="upload_manual_image_context",
 )
 st.caption("相片分析：靠 AI 視覺 + 你補充的工序描述。OCR 只會在相中有清晰文字時輔助。")
@@ -355,31 +356,25 @@ if uploaded_files:
                         image_bytes + manual_image_context.strip().encode("utf-8")
                     ).hexdigest()
                     analysis_cache = st.session_state.setdefault("_image_analysis_cache", {})
-                    understanding_result = analysis_cache.get(cache_key)
-                    if understanding_result is None:
+                    pipeline_data = analysis_cache.get(cache_key)
+                    if not isinstance(pipeline_data, dict) or "legacy_understanding" not in pipeline_data:
                         fd["filename"] = uf.name
                         fd["manual_context"] = manual_image_context.strip()
                         fd["selected_analysis_type"] = st.session_state.get("selected_analysis_type", "")
-                        vision_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-                        gemini_vision_key = os.getenv("GEMINI_API_KEY", "").strip()
-                        if not vision_key:
-                            try:
-                                vision_key = str(st.secrets.get("ANTHROPIC_API_KEY", "")).strip()
-                            except Exception:
-                                vision_key = ""
-                        if not gemini_vision_key:
-                            try:
-                                gemini_vision_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
-                            except Exception:
-                                gemini_vision_key = ""
-                        understanding_result = process_image_with_understanding(
+                        pipeline_result = analyze_file_data_for_pipeline(
                             fd,
-                            anthropic_api_key=vision_key,
-                            gemini_api_key=gemini_vision_key,
+                            file_name=uf.name,
+                            manual_description=manual_image_context.strip(),
+                            analysis_type=st.session_state.get("selected_analysis_type", "工地安全分析"),
+                            provider_health=provider_health,
+                            save_memory=False,
                         )
-                        analysis_cache[cache_key] = understanding_result
-                    fd["image_understanding"] = understanding_result
-                    fd["image_analysis"] = understanding_result.get("analysis_result", {})
+                        pipeline_data = pipeline_result.to_dict()
+                        pipeline_data["legacy_understanding"] = pipeline_result.legacy_understanding
+                        analysis_cache[cache_key] = pipeline_data
+                    fd["image_understanding"] = pipeline_data.get("legacy_understanding") or {}
+                    fd["image_analysis"] = pipeline_data.get("image_analysis") or {}
+                    fd["analysis_pipeline"] = pipeline_data
                 except Exception as img_err:
                     print(f"[Image Understanding] WARNING: {img_err}", file=sys.stderr)
                     fd["image_understanding"] = None
@@ -732,37 +727,21 @@ st.markdown('<div class="step-title">🚀 生成分析報告</div>', unsafe_allo
 def _get_api_key() -> tuple:
     """
     Returns (provider, api_key).
-    provider: "anthropic" | "deepseek"
-    Checks in order: Streamlit secrets → environment variables → session state.
+    provider: "anthropic" | "deepseek" | "gemini" | "openai"
+    Uses the shared environment / Streamlit Secrets helper.
     Never exposes key values to the UI.
     """
-    # 1. Streamlit secrets — Anthropic
-    try:
-        key = st.secrets["ANTHROPIC_API_KEY"]
+    for provider_name, secret_name in (
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"),
+        ("openai", "OPENAI_API_KEY"),
+    ):
+        key = get_secret_value(secret_name)
         if key:
-            return ("anthropic", key)
-    except Exception:
-        pass
+            return (provider_name, key)
 
-    # 2. Streamlit secrets — DeepSeek
-    try:
-        key = st.secrets["DEEPSEEK_API_KEY"]
-        if key:
-            return ("deepseek", key)
-    except Exception:
-        pass
-
-    # 3. 環境變數 — Anthropic
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if key:
-        return ("anthropic", key)
-
-    # 4. 環境變數 — DeepSeek
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
-    if key:
-        return ("deepseek", key)
-
-    # 5. Session state（Admin 模式下設定）
+    # Compatibility with the existing local admin session setting.
     key = st.session_state.get("_api_key", "")
     provider = st.session_state.get("_api_provider", "anthropic")
     return (provider, key)
@@ -934,10 +913,17 @@ if generate_btn:
         with st.spinner("正在分析中，請稍候..."):
             try:
                 if not api_key:
-                    st.error("AI 分析服務尚未設定，請聯絡系統管理員。")
-                    with st.expander("技術狀態", expanded=False):
-                        st.caption("文字回答：未設定")
-                    st.stop()
+                    pipeline_answers = [
+                        str(fd.get("analysis_pipeline", {}).get("agent_answer") or "")
+                        for fd in _all_fd
+                        if isinstance(fd.get("analysis_pipeline"), dict)
+                    ]
+                    analysis_result = next((item for item in pipeline_answers if item), "") or (
+                        "## 最簡單講\n- 目前使用本機證據分析。\n"
+                        "## 判斷依據\n- 只使用已抽取文字及使用者提供資料。\n"
+                        "## 建議\n- 請由現場負責人覆核。\n"
+                        "## 需確認事項\n- 工序、位置、工具及現有防護措施。"
+                    )
 
                 elif provider == "deepseek":
                     # DeepSeek — OpenAI-compatible API
@@ -954,6 +940,20 @@ if generate_btn:
                         max_tokens=4096,
                         temperature=0,
                         messages=[{"role": "user", "content": ds_prompt}],
+                    )
+                    analysis_result = response.choices[0].message.content
+
+                elif provider == "gemini":
+                    analysis_result = generate_gemini_text(full_prompt, api_key=api_key)
+
+                elif provider == "openai":
+                    from openai import OpenAI as _OpenAI
+
+                    response = _OpenAI(api_key=api_key).chat.completions.create(
+                        model=os.getenv("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+                        max_tokens=4096,
+                        temperature=0,
+                        messages=[{"role": "user", "content": full_prompt}],
                     )
                     analysis_result = response.choices[0].message.content
 
@@ -1014,7 +1014,7 @@ if generate_btn:
                 # Classify risk, then calibrate with Agent risk weights
                 original_risk_level = classify_risk(selected_type, question, analysis_result)
                 if _image_manual_review_only:
-                    original_risk_level = "中風險"
+                    original_risk_level = "需人工覆核"
                 if _primary_image_analysis:
                     original_risk_level = merge_credible_risk(
                         original_risk_level,
@@ -1082,13 +1082,13 @@ if generate_btn:
                             ))
                     if _image_manual_review_only:
                         conflict_result.update({
-                            "overall_risk": "中風險",
+                            "overall_risk": "需人工覆核",
                             "can_continue": "Review",
                             "final_recommendation": "需補充資料／人工覆核後再判斷，不可單靠相片決定是否繼續施工。",
                             "final_action_plan": ["補充位置、工序及需跟進事項，並由管工／安全主任人工覆核。"],
                             "merged_risks": [],
                         })
-                        risk_level = "中風險"
+                        risk_level = "需人工覆核"
                 except Exception:
                     conflict_result = {"fallback_used": True}
 
@@ -1145,6 +1145,10 @@ if generate_btn:
                     if isinstance(evidence_result, dict):
                         evidence_result["adjusted_risk_level"] = risk_level
                         evidence_result["credible_visual_floor_applied"] = risk_level != _pre_floor_risk
+                if _image_manual_review_only:
+                    risk_level = "需人工覆核"
+                    original_risk_level = "需人工覆核"
+                    calibration_result["overall_risk_level"] = risk_level
 
                 # ── Phase 3.3A/B: Site logic + progress tracking ─────────────
                 site_logic_result = {}

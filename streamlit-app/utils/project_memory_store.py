@@ -85,7 +85,8 @@ def read_all_memory(*, path: str | Path = DEFAULT_MEMORY_PATH) -> list[ProjectMe
                 record = ProjectMemoryRecord.from_dict(payload)
             except (json.JSONDecodeError, TypeError, ValueError, KeyError):
                 continue
-            latest[record.memory_id] = record
+            if record.memory_id:
+                latest[record.memory_id] = record
     except OSError:
         return []
     return sorted(latest.values(), key=lambda item: item.updated_at or item.created_at, reverse=True)

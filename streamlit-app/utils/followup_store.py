@@ -78,7 +78,8 @@ def list_followups(
                     item = FollowUpItem.from_dict(json.loads(line))
                 except (json.JSONDecodeError, TypeError, ValueError, KeyError):
                     continue
-                latest[item.followup_id] = item
+                if item.followup_id:
+                    latest[item.followup_id] = item
         except OSError:
             return []
     items = sorted(latest.values(), key=lambda item: item.updated_at or item.created_at, reverse=True)

@@ -40,7 +40,7 @@ from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
 from utils.followup_store import build_followup_context
 from utils.memory_indexer import build_project_memory_context
 from utils.project_memory_store import append_memory
-from utils.provider_health import get_provider_health
+from utils.provider_health import get_provider_health, technical_diagnostics_enabled
 from utils.rag_retriever import build_rag_context
 from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, save_memory_item
@@ -118,9 +118,10 @@ compact_link_row((
 
 provider_health = get_provider_health()
 st.caption(provider_health.user_message)
-with st.expander("技術狀態", expanded=False):
-    for note in provider_health.technical_notes:
-        st.caption(note)
+if technical_diagnostics_enabled():
+    with st.expander("管理員／開發者技術狀態", expanded=False):
+        for note in provider_health.technical_notes:
+            st.caption(note)
 
 if st.button("清除／重設", key="clear_ask_aicos"):
     for key in (

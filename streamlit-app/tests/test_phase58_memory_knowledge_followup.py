@@ -160,7 +160,8 @@ def test_ask_and_workspace_have_memory_aware_contracts_and_six_section_formatter
 
 def test_workspace_keeps_upload_and_adds_compact_memory_dashboard():
     source = (APP_ROOT / "pages/0_AICOS_Workspace.py").read_text(encoding="utf-8")
-    assert "立即上載分析" in source
+    assert "開始分析" in source
+    assert "process_uploaded_file_for_analysis(" in source
     assert "今日 / 最近工程記憶" in source
     assert "未完成跟進" in source
     assert "重複風險提示" in source

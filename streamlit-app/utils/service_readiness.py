@@ -36,6 +36,11 @@ def get_runtime_secret(name: str, secrets: Mapping[str, Any] | None = None) -> s
         return ""
 
 
+def get_secret_value(name: str, secrets: Mapping[str, Any] | None = None) -> str | None:
+    """Compatibility alias for internal callers that need one configured value."""
+    return get_runtime_secret(name, secrets) or None
+
+
 def get_service_readiness(secrets: Mapping[str, Any] | None = None) -> dict[str, bool]:
     """Return capability status only; never expose a selected provider."""
     return {

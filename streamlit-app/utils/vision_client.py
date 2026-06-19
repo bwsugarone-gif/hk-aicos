@@ -10,6 +10,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .provider_health import get_secret_value
+
 
 SUPPORTED_IMAGE_TYPES = {
     ".jpg": "image/jpeg",
@@ -18,6 +20,8 @@ SUPPORTED_IMAGE_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+_LAST_VISION_ATTEMPT = "not_run"
+_LAST_VISION_ERROR_CATEGORY = ""
 
 _VISION_PROMPT = (
     "Analyse this Hong Kong construction-site image. Return JSON only with keys: "
@@ -33,12 +37,30 @@ _VISION_PROMPT = (
 )
 
 
-def get_anthropic_api_key(explicit_key: str | None = None) -> str:
-    return str(explicit_key or os.getenv("ANTHROPIC_API_KEY", "")).strip()
+def get_anthropic_api_key(explicit_key: str | None = None, secrets=None) -> str:
+    return str(explicit_key or get_secret_value("ANTHROPIC_API_KEY", secrets) or "").strip()
 
 
-def get_gemini_api_key(explicit_key: str | None = None) -> str:
-    return str(explicit_key or os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")).strip()
+def get_gemini_api_key(explicit_key: str | None = None, secrets=None) -> str:
+    return str(
+        explicit_key
+        or get_secret_value("GEMINI_API_KEY", secrets)
+        or get_secret_value("GOOGLE_API_KEY", secrets)
+        or ""
+    ).strip()
+
+
+def get_vision_readiness(secrets=None) -> dict[str, Any]:
+    """Return configuration and last-attempt metadata without credentials."""
+    gemini = bool(get_gemini_api_key(secrets=secrets))
+    anthropic = bool(get_anthropic_api_key(secrets=secrets))
+    provider = "Gemini Vision" if gemini else ("Anthropic Vision" if anthropic else "未設定")
+    return {
+        "configured": gemini or anthropic,
+        "provider_label": provider,
+        "last_attempt": _LAST_VISION_ATTEMPT,
+        "error_category": _LAST_VISION_ERROR_CATEGORY,
+    }
 
 
 def generate_anthropic_message(
@@ -78,6 +100,34 @@ def generate_anthropic_message(
     ).strip()
 
 
+def generate_gemini_text(
+    prompt: str,
+    *,
+    api_key: str,
+    model: str | None = None,
+    max_tokens: int = 4096,
+) -> str:
+    """Lightweight Gemini text call shared by the Upload agent flow."""
+    selected_model = model or os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0, "maxOutputTokens": max_tokens},
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent?key={api_key}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
+    if not text:
+        raise ValueError("Text response was empty")
+    return text
+
+
 def analyze_image_with_vision(
     image_path: str | Path | None,
     *,
@@ -92,14 +142,14 @@ def analyze_image_with_vision(
     gemini_key = get_gemini_api_key(gemini_api_key)
     configured = bool(anthropic_key or gemini_key or client is not None)
     if path is None or path.suffix.lower() not in SUPPORTED_IMAGE_TYPES:
-        return _status("unsupported_image_type", configured=configured)
+        return _finalize(_status("unsupported_image_type", configured=configured))
     if not path.exists() or not path.is_file():
-        return _status("image_not_found", configured=configured)
+        return _finalize(_status("image_not_found", configured=configured))
 
-    if not anthropic_key and client is None and gemini_key:
-        return _analyze_image_with_gemini(path, gemini_key)
+    if client is None and gemini_key:
+        return _finalize(_analyze_image_with_gemini(path, gemini_key))
     if not anthropic_key and client is None:
-        return _status("not_configured", configured=False)
+        return _finalize(_status("not_configured", configured=False))
 
     selected_model = model or os.getenv("ANTHROPIC_VISION_MODEL", "claude-opus-4-5")
     try:
@@ -198,7 +248,7 @@ def _analyze_image_with_gemini(path: Path, api_key: str) -> dict[str, Any]:
         parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
         parsed = _parse_json_object(raw_text)
-        return {
+        return _finalize({
             "configured": True,
             "performed": True,
             "status": "success",
@@ -212,11 +262,11 @@ def _analyze_image_with_gemini(path: Path, api_key: str) -> dict[str, Any]:
             "evidence_items": _string_list(parsed.get("evidence_items")),
             "unsupported_assumptions": _string_list(parsed.get("unsupported_assumptions")),
             "needs_manual_review": bool(parsed.get("needs_manual_review")),
-        }
+        })
     except Exception as exc:
         result = _status("error", configured=True)
         result.update({"provider": "gemini", "model": model, "error": _safe_error(exc, api_key)})
-        return result
+        return _finalize(result)
 
 
 def _status(status: str, *, configured: bool) -> dict[str, Any]:
@@ -235,6 +285,22 @@ def _status(status: str, *, configured: bool) -> dict[str, Any]:
         "unsupported_assumptions": [],
         "needs_manual_review": True,
     }
+
+
+def _finalize(result: dict[str, Any]) -> dict[str, Any]:
+    global _LAST_VISION_ATTEMPT, _LAST_VISION_ERROR_CATEGORY
+    status = str(result.get("status") or "not_run")
+    if status == "success":
+        _LAST_VISION_ATTEMPT = "success"
+        _LAST_VISION_ERROR_CATEGORY = ""
+    elif status in {"not_configured", "disabled", "unsupported_image_type", "image_not_found"}:
+        _LAST_VISION_ATTEMPT = "not_run"
+        _LAST_VISION_ERROR_CATEGORY = ""
+    else:
+        _LAST_VISION_ATTEMPT = "fail"
+        error = str(result.get("error") or "")
+        _LAST_VISION_ERROR_CATEGORY = error.split(":", 1)[0][:80] or "VisionError"
+    return result
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:

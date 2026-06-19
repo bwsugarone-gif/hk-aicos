@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
 
@@ -45,9 +45,34 @@ class ProjectMemoryRecord:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "ProjectMemoryRecord":
-        fields = cls.__dataclass_fields__
-        return cls(**{key: value[key] for key in fields if key in value})
+    def from_dict(cls, value: Any) -> "ProjectMemoryRecord":
+        if isinstance(value, cls):
+            return value
+        if is_dataclass(value):
+            value = asdict(value)
+        elif not isinstance(value, dict):
+            value = getattr(value, "__dict__", {})
+        payload = dict(value or {})
+        created = str(payload.get("created_at") or payload.get("updated_at") or "")
+        return cls(
+            memory_id=str(payload.get("memory_id") or payload.get("record_id") or ""),
+            created_at=created,
+            updated_at=str(payload.get("updated_at") or created),
+            project_ref=payload.get("project_ref") or payload.get("project_id") or None,
+            source_type=str(payload.get("source_type") or payload.get("memory_type") or "manual_note"),
+            title=str(payload.get("title") or "未命名工程記憶"),
+            summary=str(payload.get("summary") or payload.get("answer_summary") or ""),
+            raw_question=payload.get("raw_question"), answer_summary=payload.get("answer_summary"),
+            analysis_type=payload.get("analysis_type"), risk_level=payload.get("risk_level"),
+            confidence=payload.get("confidence"), evidence_sources=list(payload.get("evidence_sources") or []),
+            tags=list(payload.get("tags") or []), trade_tags=list(payload.get("trade_tags") or []),
+            location_hint=payload.get("location_hint"), responsible_role=payload.get("responsible_role"),
+            status=str(payload.get("status") or "open"), priority=str(payload.get("priority") or "medium"),
+            due_hint=payload.get("due_hint"),
+            linked_record_ids=list(payload.get("linked_record_ids") or payload.get("related_record_ids") or []),
+            source_file_name=payload.get("source_file_name"), source_route=payload.get("source_route"),
+            metadata=dict(payload.get("metadata") or payload.get("raw_payload") or {}),
+        )
 
 
 @dataclass

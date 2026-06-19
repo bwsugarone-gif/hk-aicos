@@ -91,7 +91,9 @@ def read_knowledge_index(*, index_path: str | Path = DEFAULT_INDEX_PATH) -> list
         return []
     for line in lines:
         try:
-            sources.append(KnowledgeSource.from_dict(json.loads(line)))
+            source = KnowledgeSource.from_dict(json.loads(line))
+            if source.source_id:
+                sources.append(source)
         except (json.JSONDecodeError, TypeError, ValueError, KeyError):
             continue
     return sources

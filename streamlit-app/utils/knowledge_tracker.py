@@ -37,8 +37,23 @@ class KnowledgeSourceItem:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "KnowledgeSourceItem":
-        fields = cls.__dataclass_fields__
-        return cls(**{key: value[key] for key in fields if key in value})
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return cls(
+            source_id=str(payload.get("source_id") or ""),
+            created_at=str(payload.get("created_at") or payload.get("last_indexed_at") or ""),
+            source_type=str(payload.get("source_type") or "document"),
+            title=str(payload.get("title") or "未命名知識來源"),
+            storage_provider=str(payload.get("storage_provider") or "local_json"),
+            local_path=str(payload.get("local_path") or payload.get("path_or_url") or ""),
+            google_drive_file_id=str(payload.get("google_drive_file_id") or ""),
+            google_drive_url=str(payload.get("google_drive_url") or ""),
+            tags=_string_list(payload.get("tags") or payload.get("topic_tags") or payload.get("trade_tags")),
+            project_id=str(payload.get("project_id") or payload.get("project_ref") or ""),
+            summary=str(payload.get("summary") or ""),
+            extracted_text_path=str(payload.get("extracted_text_path") or ""),
+            indexed_status=str(payload.get("indexed_status") or "pending"),
+            raw_metadata=dict(payload.get("raw_metadata") or {}),
+        )
 
 
 def save_source_item(
@@ -87,8 +102,21 @@ def list_source_items(
         filters["project_id"] = project_id
     if storage_provider:
         filters["storage_provider"] = storage_provider
-    rows = (adapter or LocalJsonStorageAdapter()).list_sources(**filters)
-    return [KnowledgeSourceItem.from_dict(row) for row in rows]
+    rows = (adapter or LocalJsonStorageAdapter()).list_sources(limit=None)
+    items = []
+    for row in rows:
+        try:
+            item = KnowledgeSourceItem.from_dict(row)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if source_type and item.source_type != source_type:
+            continue
+        if project_id and item.project_id != project_id:
+            continue
+        if storage_provider and item.storage_provider != storage_provider:
+            continue
+        items.append(item)
+    return items if limit is None else items[: max(0, int(limit))]
 
 
 def search_sources(

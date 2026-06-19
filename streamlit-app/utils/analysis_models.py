@@ -194,11 +194,17 @@ class SiteRecord(SerializableModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SiteRecord":
-        values = {
-            key: data[key]
-            for key in cls.__dataclass_fields__
-            if key in data and data[key] is not None
-        }
-        values.setdefault("history", [])
-        values.setdefault("raw_payload", {})
-        return cls(**values)
+        payload = dict(data or {}) if isinstance(data, dict) else {}
+        return cls(
+            record_id=str(payload.get("record_id") or payload.get("id") or ""),
+            created_at=str(payload.get("created_at") or payload.get("updated_at") or ""),
+            record_type=str(payload.get("record_type") or "followup_action"),
+            title=str(payload.get("title") or "未命名地盤記錄"),
+            content_summary=str(payload.get("content_summary") or payload.get("summary") or ""),
+            source=str(payload.get("source") or "legacy_record"),
+            category=str(payload.get("category") or "general"), risk_level=str(payload.get("risk_level") or ""),
+            priority=str(payload.get("priority") or "low"), status=str(payload.get("status") or "open"),
+            responsible_role=str(payload.get("responsible_role") or ""), due_hint=str(payload.get("due_hint") or ""),
+            remarks=str(payload.get("remarks") or ""), updated_at=str(payload.get("updated_at") or ""),
+            history=list(payload.get("history") or []), raw_payload=dict(payload.get("raw_payload") or {}),
+        )
