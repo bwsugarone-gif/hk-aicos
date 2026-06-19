@@ -35,6 +35,8 @@ from utils.official_sources import (
     source_id_for,
 )
 from utils.search_query_builder import build_hk_official_query
+from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
+from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, save_memory_item
 from utils.site_record_store import SiteRecordStore, save_qa_session_record
 from utils.source_reference_extractor import (
@@ -44,7 +46,14 @@ from utils.source_reference_extractor import (
     has_specific_reference,
 )
 from utils.web_search_adapter import web_search
-from utils.ui_components import compact_link_row, page_header, render_answer_card, render_product_footer, risk_badge
+from utils.ui_components import (
+    compact_link_row,
+    page_header,
+    render_answer_card,
+    render_product_footer,
+    render_risk_evidence_trace,
+    risk_badge,
+)
 
 
 st.set_page_config(page_title="問 AICOS", page_icon="💬", layout="wide")
@@ -264,6 +273,15 @@ if result:
     references = extract_source_references(source_data, result["question"])
     official_references = [reference for reference in references if reference.trust_level == "official_hk"]
     source_summary_lines = [format_source_reference(reference) for reference in official_references[:3]]
+    risk_trace = build_risk_evidence_trace(
+        response_data.get("risk_level", "unknown"),
+        question=result["question"],
+        sources=source_data,
+    )
+    analysis_basis = build_analysis_basis(
+        sources=source_data,
+        rules_matched=risk_trace.rules_matched,
+    )
     review_warnings = []
     if st.session_state.get("ask_answer_recovered"):
         review_warnings.append("部分搜尋內容暫時不可用，已改用安全的本機備用答案。")
@@ -286,6 +304,9 @@ if result:
             if st.session_state.get("ask_memory_id") else ""
         ),
         fallback_used=bool(response_data.get("fallback_used")),
+        risk_trace=risk_trace,
+        analysis_basis=analysis_basis,
+        technical_status=get_service_readiness(),
     )
     st.divider()
     render_answer_card(answer_display)
@@ -296,33 +317,23 @@ if result:
         risk_badge(response_data["risk_level"])
     col_confidence.metric("回答信心", answer_display.confidence_label)
     col_mode.metric("回答模式", ANSWER_MODE_LABELS.get(result.get("answer_mode"), ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE]))
+    render_risk_evidence_trace(risk_trace, analysis_basis)
     st.markdown("#### 具體來源參考")
     if official_references:
         for reference in official_references[:3]:
             st.markdown(f"- {format_source_reference(reference)}")
     else:
-        st.caption("未能從目前來源確認具體章節，請以官方 PDF 原文為準。")
+        st.caption("本次未能核實官方具體章節，請以最新官方文件及安全主任覆核為準。")
 
     if web_status:
-        with st.expander("網上搜尋狀態與統計", expanded=False):
-            provider = str(web_status.get("provider") or "fallback")
-            if web_status.get("error"):
-                st.warning("搜尋失敗，已使用備援")
-            elif web_status.get("fallback_used"):
-                st.info("未設定網上搜尋")
-            else:
-                provider_label = {"tavily": "Tavily 已連接", "brave": "Brave 已連接"}.get(
-                    provider, f"{provider} 已連接"
-                )
-                st.success(provider_label)
+        with st.expander("搜尋詳情", expanded=False):
+            st.caption("網上搜尋：" + ("未設定或未完成" if web_status.get("fallback_used") else "已完成"))
             count_official, count_trusted, count_general = st.columns(3)
             count_official.metric("香港官方來源", int(web_status.get("official_results_count") or 0))
             count_trusted.metric("可信行業來源", int(web_status.get("trusted_results_count") or 0))
             count_general.metric("一般網上來源", int(web_status.get("general_results_count") or 0))
             st.markdown("**實際搜尋字串**")
             st.code(web_status.get("searched_query") or "（沒有搜尋字串）", language=None)
-            if web_status.get("error"):
-                st.caption(str(web_status["error"]))
 
     st.markdown("#### 完整來源清單")
     if not source_data:

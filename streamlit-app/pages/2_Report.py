@@ -23,7 +23,8 @@ from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.project_manager import load_project
-from utils.ui_components import page_header, render_product_footer
+from utils.risk_evidence import build_trace_from_analysis
+from utils.ui_components import page_header, render_product_footer, render_risk_evidence_trace
 
 st.set_page_config(
     page_title="分析報告 | HK-AICOS",
@@ -215,6 +216,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+report_risk_trace, report_analysis_basis = build_trace_from_analysis(data)
+render_risk_evidence_trace(report_risk_trace, report_analysis_basis)
 
 # ── 問題摘要 ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="report-section">', unsafe_allow_html=True)

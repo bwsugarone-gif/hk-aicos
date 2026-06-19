@@ -20,7 +20,9 @@ from utils.site_record_store import (
 )
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
+from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
 from utils.ui_components import compact_link_row, page_header, render_product_footer
+from utils.ui_components import render_risk_evidence_trace
 
 
 st.set_page_config(page_title="地盤記錄", page_icon="🗂️", layout="wide")
@@ -76,6 +78,17 @@ else:
             col3.markdown(f"**風險／優先度**  \n{risk}")
             col4.markdown(f"**狀態**  \n{record.status}")
             st.write(record.content_summary)
+            record_sources = [{"source_type": "uploaded_record", "trust_level": "uploaded_record"}]
+            record_trace = build_risk_evidence_trace(
+                risk,
+                question=record.content_summary,
+                sources=record_sources,
+            )
+            record_basis = build_analysis_basis(
+                sources=record_sources,
+                rules_matched=record_trace.rules_matched,
+            )
+            render_risk_evidence_trace(record_trace, record_basis, compact=True)
             if record.responsible_role or record.due_hint:
                 st.caption(f"負責：{record.responsible_role or '未指定'} · 時限：{record.due_hint or '未指定'}")
             if record.remarks:

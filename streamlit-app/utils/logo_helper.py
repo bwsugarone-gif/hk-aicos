@@ -15,7 +15,9 @@ _LOGO_PATH = Path(__file__).parent.parent / "assets" / "Logo.png"
 def sidebar_logo():
     """Display logo in sidebar; fallback to text brand if logo not found."""
     if _LOGO_PATH.exists():
-        st.image(str(_LOGO_PATH), use_container_width=True)
+        logo_left, logo_center, logo_right = st.columns([1, 5, 1])
+        with logo_center:
+            st.image(str(_LOGO_PATH), use_container_width=True)
     else:
         st.markdown("""
         <div style="text-align:center; padding: 1rem 0 0.5rem 0;">

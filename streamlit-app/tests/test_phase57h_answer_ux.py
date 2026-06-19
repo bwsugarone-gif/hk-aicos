@@ -112,10 +112,11 @@ def test_working_at_height_site_simple_is_practical_and_concise(monkeypatch):
     )
     answer = response.answer
     assert answer.startswith("#### 最簡單講")
-    assert "#### 現場判斷" in answer
+    assert "#### 判斷依據" in answer
+    assert "#### 主要風險 / 影響" in answer
     assert "#### 建議" in answer
-    assert "#### 需要留意" in answer
-    assert "#### 來源摘要" in answer
+    assert "#### 需確認事項" in answer
+    assert "#### 來源 / 限制" in answer
     assert "即時行動" not in answer
     assert "墮下" in answer
     assert "護欄" in answer
@@ -123,7 +124,7 @@ def test_working_at_height_site_simple_is_practical_and_concise(monkeypatch):
     assert "安全帶" in answer
     assert "第 5.3 節" in answer
     assert "LONG_SOURCE_MARKER" not in answer
-    assert sum(line.startswith("- ") for line in answer.splitlines()) <= 8
+    assert sum(line.startswith("- ") for line in answer.splitlines()) <= 12
     assert response.sources[0].source_id == "labour_bamboo"
 
 

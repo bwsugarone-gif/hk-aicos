@@ -9,6 +9,64 @@ LANGUAGE_OPTIONS = ("繁體中文", "English")
 LANGUAGE_KEY = "aicos_navigation_language"
 LANGUAGE_WIDGET_KEY = "_aicos_navigation_language_widget"
 
+SIDEBAR_STYLE_CSS = """
+<style>
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #102a43 0%, #0b2035 100%) !important;
+    border-right: 1px solid #294d6b;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    padding-top: .65rem;
+}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] summary,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    color: #eef5fb !important;
+}
+[data-testid="stSidebar"] img {
+    display: block;
+    width: min(100%, 180px) !important;
+    margin: 0 auto .35rem auto;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] a {
+    color: #edf5fb !important;
+    border-radius: 9px;
+    padding: .48rem .62rem;
+    margin: .08rem 0;
+    text-decoration: none;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] a:hover {
+    background: rgba(255, 255, 255, .10) !important;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] {
+    background: #d4ad4d !important;
+    color: #102a43 !important;
+    font-weight: 700;
+    box-shadow: inset 3px 0 0 #fff3c4;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] {
+    border-color: rgba(255, 255, 255, .18);
+    border-radius: 9px;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] > div {
+    background: #f7fbff !important;
+    border-color: #7997af !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] span,
+[data-testid="stSidebar"] [data-baseweb="select"] input {
+    color: #102a43 !important;
+}
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255, 255, 255, .18) !important;
+    margin: .7rem 0;
+}
+</style>
+"""
+
 PRIMARY_PAGES = (
     ("workspace", "pages/0_AICOS_Workspace.py"),
     ("records", "pages/11_Records.py"),
@@ -76,16 +134,7 @@ def _store_language_choice() -> None:
 
 def render_navigation_links() -> str:
     """Render one consistent sidebar navigation and return its language."""
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] [data-baseweb="select"] * {
-            color: #1a3a5c !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(SIDEBAR_STYLE_CSS, unsafe_allow_html=True)
     saved_language = st.session_state.get(LANGUAGE_KEY, LANGUAGE_OPTIONS[0])
     if saved_language not in LANGUAGE_OPTIONS:
         saved_language = LANGUAGE_OPTIONS[0]

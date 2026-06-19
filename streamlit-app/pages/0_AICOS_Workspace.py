@@ -29,12 +29,20 @@ from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.official_sources import SOURCE_MODE_LABELS_ZH, default_source_mode, source_id_for
+from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace, build_trace_from_analysis
 from utils.search_query_builder import build_hk_official_query
+from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, list_memory_items, save_memory_item
 from utils.site_record_store import SiteRecordStore
 from utils.web_search_adapter import web_search
 from utils.workspace_preview import build_recent_analysis_preview
-from utils.ui_components import compact_link_row, page_header, render_answer_card, render_product_footer
+from utils.ui_components import (
+    compact_link_row,
+    page_header,
+    render_answer_card,
+    render_product_footer,
+    render_risk_evidence_trace,
+)
 
 
 st.set_page_config(page_title="AICOS 工作台", page_icon="🏗️", layout="wide")
@@ -54,6 +62,7 @@ SEARCH_SCOPES = {
     "web_search": "網上搜尋",
     "all": "全部來源",
 }
+WORKSPACE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 
 
 def _record_context(question: str) -> list[KnowledgeSnippet]:
@@ -90,9 +99,34 @@ st.divider()
 upload_col, ask_col = st.columns(2, gap="large")
 
 with upload_col:
-    st.subheader("📤 上載相片／文件")
-    st.write("使用完整上載分析流程進行 OCR、圖片判斷及跟進建議。")
-    st.page_link("pages/1_Upload.py", label="開啟上載分析", use_container_width=True)
+    with st.container(border=True):
+        st.markdown(
+            '<div class="aicos-upload-cta"><strong>📤 上載相片 / 文件</strong>'
+            '<p>拖放相片或文件，AICOS 會協助整理相片所見、風險及跟進建議。</p></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("立即上載分析", type="primary", use_container_width=True):
+            st.switch_page("pages/1_Upload.py")
+        workspace_file = st.file_uploader(
+            "拖放檔案到這裡",
+            type=["jpg", "jpeg", "png", "pdf", "docx", "xlsx"],
+            accept_multiple_files=False,
+            key="workspace_file_uploader",
+        )
+        if workspace_file is not None:
+            if workspace_file.size > WORKSPACE_UPLOAD_MAX_BYTES:
+                st.error("檔案超過 50MB，請壓縮或分批上載。")
+            else:
+                st.session_state["workspace_upload_handoff"] = {
+                    "name": workspace_file.name,
+                    "size": workspace_file.size,
+                    "mime_type": workspace_file.type,
+                    "data": workspace_file.getvalue(),
+                }
+                st.success(f"已收到檔案：{workspace_file.name}；請按「開始分析」。")
+                if st.button("開始分析", type="primary", use_container_width=True):
+                    st.switch_page("pages/1_Upload.py")
+        st.page_link("pages/1_Upload.py", label="前往完整上載頁", use_container_width=True)
     recent_analysis = st.session_state.get("last_analysis")
     if isinstance(recent_analysis, dict):
         preview = build_recent_analysis_preview(recent_analysis)
@@ -112,6 +146,8 @@ with upload_col:
             st.markdown("**需確認事項**")
             for item in preview["confirmations"][:2]:
                 st.markdown(f"- {item}")
+        recent_trace, recent_basis = build_trace_from_analysis(recent_analysis)
+        render_risk_evidence_trace(recent_trace, recent_basis, compact=True)
         st.page_link("pages/2_Report.py", label="查看完整分析報告", use_container_width=True)
     else:
         recent_records = SiteRecordStore().list_records(limit=1)
@@ -216,6 +252,18 @@ with ask_col:
     if isinstance(quick_result, dict):
         st.markdown("#### AICOS 簡短預覽")
         quick_sources = [item for item in quick_result.get("sources", []) if isinstance(item, dict)]
+        quick_question_for_trace = str(
+            (st.session_state.get("ask_result") or {}).get("question") or ""
+        )
+        quick_trace = build_risk_evidence_trace(
+            quick_result.get("risk_level", "unknown"),
+            question=quick_question_for_trace,
+            sources=quick_sources,
+        )
+        quick_basis = build_analysis_basis(
+            sources=quick_sources,
+            rules_matched=quick_trace.rules_matched,
+        )
         official_titles = [
             str(item.get("source_title") or "").strip()
             for item in quick_sources
@@ -238,8 +286,12 @@ with ask_col:
                 if st.session_state.get("workspace_saved_memory_id") else ""
             ),
             fallback_used=bool(quick_result.get("fallback_used")),
+            risk_trace=quick_trace,
+            analysis_basis=quick_basis,
+            technical_status=get_service_readiness(),
         )
         render_answer_card(display, compact=True)
+        render_risk_evidence_trace(quick_trace, quick_basis, compact=True)
         st.page_link("pages/10_Ask_AICOS.py", label="查看完整答案及來源", use_container_width=True)
 
 st.divider()
@@ -279,7 +331,7 @@ with source_tab:
         st.info("尚未登記知識來源；Google Drive 欄位已預留，但本階段不會連接 Google API。")
     for item in source_items[:5]:
         st.markdown(f"**{item.title}**")
-        st.caption(f"{item.source_type} · {item.storage_provider} · {item.indexed_status}")
+        st.caption(f"知識來源 · 狀態：{item.indexed_status}")
         st.write(item.summary[:300])
         if item.google_drive_url:
             st.markdown(f"[開啟 Google Drive 文件]({item.google_drive_url})")

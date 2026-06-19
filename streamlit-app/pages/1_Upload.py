@@ -90,7 +90,8 @@ from utils.repeated_issue_detector import (
     detect_repeated_issues,
     format_repeated_issues_for_report,
 )
-from utils.ui_components import compact_link_row, page_header, render_product_footer
+from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
+from utils.ui_components import compact_link_row, page_header, render_product_footer, render_risk_evidence_trace
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -237,6 +238,12 @@ compact_link_row([
     ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
     ("pages/11_Records.py", "🗂️ 地盤記錄"),
 ])
+workspace_handoff = st.session_state.get("workspace_upload_handoff")
+if isinstance(workspace_handoff, dict) and workspace_handoff.get("name"):
+    st.info(
+        f"工作台已收到「{workspace_handoff['name']}」。"
+        "請在下方選擇同一檔案，啟動完整分析流程。"
+    )
 
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
 MAX_FILES = 3
@@ -419,7 +426,7 @@ if uploaded_files:
                         evidence_context = raw_metadata.get("evidence_context") or {}
                         st.caption("文字偵測：" + ("已偵測到文字" if ocr_text_found else "未偵測到清晰文字"))
                         if evidence_context.get("has_visual_analysis"):
-                            st.success(f"AI 視覺：已啟用（{vision_status.get('provider') or 'vision'}）")
+                            st.success("AI 視覺：已啟用")
                             st.caption("視覺分析：已根據可見內容分析")
                         elif vision_status.get("status") == "error":
                             st.warning("AI 視覺：失敗，已改為人工覆核模式")
@@ -449,6 +456,24 @@ if uploaded_files:
                         st.markdown("#### 需確認事項")
                         for item in concise["confirmations"]:
                             st.markdown(f"- {item}")
+
+                        risk_trace = build_risk_evidence_trace(
+                            concise["risk_level"],
+                            manual_description=str(evidence_context.get("user_description") or ""),
+                            ocr_text=str(analysis_data.get("ocr_text") or ""),
+                            visual_observations=analysis_data.get("visual_observations") or [],
+                            evidence_items=analysis_data.get("evidence_items") or [],
+                            raw_answer=" ".join(concise.get("risks") or []),
+                            has_visual_analysis=bool(evidence_context.get("has_visual_analysis")),
+                        )
+                        analysis_basis = build_analysis_basis(
+                            ocr_text=str(analysis_data.get("ocr_text") or ""),
+                            has_visual_analysis=bool(evidence_context.get("has_visual_analysis")),
+                            visual_observations=analysis_data.get("visual_observations") or [],
+                            manual_description=str(evidence_context.get("user_description") or ""),
+                            rules_matched=risk_trace.rules_matched,
+                        )
+                        render_risk_evidence_trace(risk_trace, analysis_basis)
 
                         with st.expander("🔎 詳細圖片證據及跟進", expanded=False):
                             for evidence in analysis_data.get("evidence_items", [])[:8]:
@@ -903,7 +928,7 @@ if generate_btn:
                 if not api_key:
                     st.error("AI 分析服務尚未設定，請聯絡系統管理員。")
                     with st.expander("技術狀態", expanded=False):
-                        st.caption(f"文字回答供應商：{provider or '未設定'}")
+                        st.caption("文字回答：未設定")
                     st.stop()
 
                 elif provider == "deepseek":

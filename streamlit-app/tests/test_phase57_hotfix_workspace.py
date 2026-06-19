@@ -70,7 +70,7 @@ def test_workspace_working_at_height_question_is_practical_and_does_not_crash(mo
     assert "#### 建議" in response.answer
     assert "即時行動" not in response.answer
     assert "高空" in response.answer
-    assert "未能從目前來源確認具體章節，請以官方 PDF 原文為準。" in response.answer
+    assert "本次未能核實官方具體章節，請以最新官方文件及安全主任覆核為準。" in response.answer
     assert len(response.answer) < 1200
 
 

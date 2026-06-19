@@ -71,8 +71,8 @@ def test_answer_formatter_removes_technical_failures_and_normalises_actions():
     assert "Provider error" not in visible
     assert "即時行動" not in visible
     assert model.recommendations_bullets == ["清走附近可燃物。"]
-    assert model.source_summary == ["本次沒有可核實官方來源；請由安全主任按最新指引覆核。"]
-    assert "目前使用本機備用回答模式。建議仍須按現場情況及最新官方文件覆核。" in model.warning_labels
+    assert model.source_summary == ["本次未能核實官方具體章節，請以最新官方文件及安全主任覆核為準。"]
+    assert "目前使用本機備用回答，請由相關負責人覆核。" in model.warning_labels
 
 
 def test_ask_and_workspace_use_one_formatter_with_compact_workspace_output():

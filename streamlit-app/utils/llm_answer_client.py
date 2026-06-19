@@ -17,10 +17,11 @@ from .source_reference_extractor import (
     extract_source_references,
     format_source_reference,
 )
+from .service_readiness import get_runtime_secret
 
 
 SAFETY_TYPES = {"safety", "law_regulation"}
-UNCONFIRMED_REFERENCE_NOTICE = "未能從目前來源確認具體章節，請以官方 PDF 原文為準。"
+UNCONFIRMED_REFERENCE_NOTICE = "本次未能核實官方具體章節，請以最新官方文件及安全主任覆核為準。"
 __all__ = ["answer_question", "safe_answer_question"]
 
 
@@ -55,10 +56,10 @@ def answer_question(
     try:
         raw_answer = _call_existing_provider_router(provider_name, api_key, model, system_prompt, user_message)
         return _parse_provider_answer(raw_answer, question_type, search_scope, contexts, model, mode, question)
-    except Exception as exc:
+    except Exception:
         response = _fallback_answer(question, question_type, search_scope, contexts, mode)
-        response.model_name = f"local-fallback ({provider_name} error)"
-        response.answer += f"\n\n> AI 供應商暫時未能回應（{type(exc).__name__}），以上為本機後備結果。"
+        response.model_name = "local-fallback"
+        response.answer += "\n\n> 目前使用本機備用回答，請由相關負責人覆核。"
         return response
 
 
@@ -118,9 +119,9 @@ def _select_provider() -> tuple[str, str, str] | None:
     order.extend(name for name in ("anthropic", "openai", "deepseek", "gemini") if name not in order)
     for name in order:
         provider, env_name, default_model = configurations[name]
-        api_key = os.getenv(env_name, "").strip()
+        api_key = get_runtime_secret(env_name)
         if not api_key and name == "gemini":
-            api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+            api_key = get_runtime_secret("GOOGLE_API_KEY")
         if api_key:
             model = os.getenv("AICOS_LLM_MODEL", "").strip() or default_model
             return provider, api_key, model
@@ -334,10 +335,11 @@ def _structured_answer(
         attention = _attention_items(question, question_type, contexts, safe_followups)
         sections = (
             ("最簡單講", [conclusion]),
-            ("現場判斷", [risk_summary]),
+            ("判斷依據", _judgement_basis(question, contexts)),
+            ("主要風險 / 影響", [risk_summary]),
             ("建議", safe_recommendations[:3]),
-            ("需要留意", attention[:1]),
-            ("來源摘要", source_lines[:1]),
+            ("需確認事項", attention[:2]),
+            ("來源 / 限制", source_lines[:1]),
         )
     return _render_sections(sections)
 
@@ -401,6 +403,18 @@ def _attention_items(question: str, question_type: str, contexts: list[Any], fol
             return ["合規決定前仍要核實香港官方文件最新版本及由安全主任／合資格人士確認。"]
         return ["本回答未有即時連線至香港官方網站核實；須由安全主任及官方最新文件覆核。"]
     return followups or ["資料不足時先補充現場照片、位置及文件版本。"]
+
+
+def _judgement_basis(question: str, contexts: list[Any]) -> list[str]:
+    if _is_working_at_height(question):
+        return [
+            "是否涉及離地、臨邊、洞口、棚架、吊船或工作平台。",
+            "是否有穩固平台、護欄、踢腳板及安全進出通道。",
+            "是否存在跌落、物件墮下或失足風險。",
+        ]
+    if contexts:
+        return ["根據已提供的地盤記錄、知識或來源摘要作初步判斷。"]
+    return ["只根據使用者提供的問題及可觀察資料作初步判斷。"]
 
 
 def _source_reference_lines(contexts: list[Any], question: str, limit: int) -> list[str]:
