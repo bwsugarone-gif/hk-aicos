@@ -128,7 +128,9 @@ def classify_image(
         confidence = min(0.92, 0.5 + best_score * 0.08)
         return best_category, confidence
     if has_supported_image:
-        return ImageCategory.GENERAL_SITE_PHOTO, 0.35
+        # A supported file is not evidence that its visual contents were
+        # actually inspected.  The caller keeps visual confidence at zero.
+        return ImageCategory.GENERAL_SITE_PHOTO, 0.0
     return ImageCategory.UNKNOWN, 0.0
 
 

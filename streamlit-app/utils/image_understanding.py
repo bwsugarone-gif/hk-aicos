@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .analysis_models import ImageAnalysisResult, ImageCategory, OCRResult
+from .analysis_models import EvidenceContext, ImageAnalysisResult, ImageCategory, OCRResult
 from .followup_generator import generate_followups
 from .image_classifier import classify_image
 from .image_safety_hardening import HOT_WORK_CATEGORIES, filter_unsupported_assumptions
@@ -69,6 +69,7 @@ def analyze_image(
     ocr_data: dict[str, Any] | OCRResult | None = None,
     use_vision: bool = True,
     anthropic_api_key: str | None = None,
+    gemini_api_key: str | None = None,
 ) -> ImageAnalysisResult:
     """Analyse an image with local OCR first and optional vision enrichment."""
     path = Path(file_path) if file_path else None
@@ -82,7 +83,11 @@ def analyze_image(
         ocr_result = OCRResult(metadata={"ocr_status": "NO_IMAGE"})
 
     vision = (
-        analyze_image_with_vision(path, api_key=anthropic_api_key)
+        analyze_image_with_vision(
+            path,
+            api_key=anthropic_api_key,
+            gemini_api_key=gemini_api_key,
+        )
         if use_vision and path is not None
         else {
             "configured": False,
@@ -97,15 +102,24 @@ def analyze_image(
     )
     extracted_text = ocr_result.text or str(vision.get("extracted_text") or "").strip()
     structured = extract_structured_info(extracted_text)
-    manual_context = " ".join(
+    user_description = (
+        str((ocr_data or {}).get("manual_context") or "").strip()
+        if isinstance(ocr_data, dict)
+        else ""
+    )
+    selected_analysis_type = (
+        str((ocr_data or {}).get("selected_analysis_type") or "").strip()
+        if isinstance(ocr_data, dict)
+        else ""
+    )
+    filename_context = " ".join(
         str(value or "")
         for value in (
             getattr(path, "name", ""),
             (ocr_data or {}).get("filename") if isinstance(ocr_data, dict) else "",
-            (ocr_data or {}).get("manual_context") if isinstance(ocr_data, dict) else "",
-            (ocr_data or {}).get("question") if isinstance(ocr_data, dict) else "",
         )
     )
+    manual_context = " ".join((filename_context, user_description))
     category, category_confidence = classify_image(
         extracted_text,
         vision,
@@ -113,7 +127,12 @@ def analyze_image(
         manual_context=manual_context,
     )
 
-    evidence_items = _string_list(vision.get("evidence_items"))
+    has_visual_analysis = bool(
+        vision.get("performed")
+        and vision.get("status") == "success"
+        and float(vision.get("confidence") or 0) > 0
+    )
+    evidence_items = _string_list(vision.get("evidence_items")) if has_visual_analysis else []
     raw_observations = _dedupe(_local_observations(structured, extracted_text) + _string_list(vision.get("observations")))
     raw_risks = _dedupe(_local_risks(structured) + _string_list(vision.get("risks")))
     explicit_context = " ".join((extracted_text, manual_context))
@@ -131,21 +150,40 @@ def analyze_image(
 
     if category.value in HOT_WORK_CATEGORIES:
         signal_text = " ".join([*evidence_items, *observations, *risks, explicit_context]).lower()
-        hot_observations, hot_risks = _hot_work_findings(signal_text, bool(vision.get("performed")))
+        hot_observations, hot_risks = _hot_work_findings(signal_text, has_visual_analysis)
         observations = _dedupe(hot_observations + observations)[:8]
         risks = _dedupe(hot_risks + risks)[:8]
+
+    has_user_or_text_evidence = bool(extracted_text.strip() or user_description or _hot_work_terms(filename_context))
+    if not has_visual_analysis and not has_user_or_text_evidence:
+        category = ImageCategory.GENERAL_SITE_PHOTO
+        category_confidence = 0.0
+        observations = []
+        risks = []
+        unsupported = []
 
     if not evidence_items:
         evidence_items = _confirmed_evidence(observations)
     followups = generate_followups(category, observations, risks)
 
     engines = [ocr_result.engine]
-    if vision.get("performed") and vision.get("status") == "success":
-        engines.append("anthropic_vision")
-    visual_confidence = round(min(1.0, category_confidence), 2)
+    if has_visual_analysis:
+        engines.append(f"{vision.get('provider') or 'ai'}_vision")
+    visual_confidence = round(min(1.0, category_confidence), 2) if has_visual_analysis else 0.0
+    evidence_context = EvidenceContext(
+        has_ocr_text=bool(ocr_result.text.strip()),
+        ocr_confidence=round(min(1.0, ocr_result.confidence), 2),
+        has_visual_analysis=has_visual_analysis,
+        visual_confidence=visual_confidence,
+        visual_observations=_string_list(vision.get("observations")) if has_visual_analysis else [],
+        user_description=user_description,
+        selected_analysis_type=selected_analysis_type,
+        evidenced_terms=_evidenced_terms(" ".join([*evidence_items, extracted_text, user_description, filename_context])),
+        unsupported_terms=unsupported,
+    )
     needs_manual_review = bool(
         vision.get("needs_manual_review")
-        or not (vision.get("performed") and vision.get("status") == "success")
+        or not has_visual_analysis
         or visual_confidence < 0.65
         or unsupported
     )
@@ -161,13 +199,14 @@ def analyze_image(
             "ocr": ocr_result.to_dict(),
             "vision": vision,
             "structured_info": structured,
+            "evidence_context": evidence_context.to_dict(),
             "fallback_used": not bool(vision.get("performed") and vision.get("status") == "success"),
         },
         ocr_text=ocr_result.text,
         ocr_confidence=round(min(1.0, ocr_result.confidence), 2),
         visual_confidence=visual_confidence,
         image_category=category,
-        visual_observations=observations,
+        visual_observations=(observations if has_visual_analysis else []),
         evidence_items=evidence_items,
         unsupported_assumptions=unsupported,
         needs_manual_review=needs_manual_review,
@@ -178,12 +217,14 @@ def process_image_with_understanding(
     ocr_result: dict[str, Any],
     *,
     anthropic_api_key: str | None = None,
+    gemini_api_key: str | None = None,
 ) -> dict[str, Any]:
     """Compatibility wrapper used by the existing Upload/report pipeline."""
     analysis = analyze_image(
         ocr_result.get("path"),
         ocr_data=ocr_result,
         anthropic_api_key=anthropic_api_key,
+        gemini_api_key=gemini_api_key,
     )
     structured = analysis.raw_metadata.get("structured_info", _empty_structured_info())
     text_context = build_image_text_context(ocr_result, structured)
@@ -227,12 +268,21 @@ def build_visual_evidence_context(analysis: dict[str, Any]) -> str:
     observations = _string_list(analysis.get("visual_observations") or analysis.get("key_observations"))
     evidence_items = _string_list(analysis.get("evidence_items"))
     unsupported = _string_list(analysis.get("unsupported_assumptions"))
+    evidence_context = (
+        analysis.get("raw_metadata", {}).get("evidence_context", {})
+        if isinstance(analysis.get("raw_metadata"), dict)
+        else {}
+    )
     lines = [
         "[IMAGE VISUAL EVIDENCE]",
         f"圖片分類：{category}",
         f"視覺分析信心：{float(analysis.get('visual_confidence') or 0):.0%}",
         "只可把以下可見或明確提供內容寫成已確認事項。",
     ]
+    if evidence_context.get("user_description"):
+        lines.append("使用者提供的工序描述：" + str(evidence_context["user_description"]))
+    if not evidence_context.get("has_visual_analysis"):
+        lines.append("未能進行 AI 視覺辨識；不得根據安全分析類型推測任何具體危害。")
     lines.extend(f"- {item}" for item in (evidence_items or observations)[:8])
     if unsupported:
         lines.append("需確認／不可當作已確認風險：")
@@ -342,3 +392,19 @@ def _hot_work_findings(signal_text: str, vision_performed: bool) -> tuple[list[s
         "室內位置的通風及走火通道需要確認。",
     ]
     return observations, risks
+
+
+def _hot_work_terms(text: str) -> list[str]:
+    lowered = str(text or "").lower()
+    terms = ("grinder", "grinding", "cutting", "sparks", "火花", "磨機", "切割", "熱工")
+    return [term for term in terms if term in lowered]
+
+
+def _evidenced_terms(text: str) -> list[str]:
+    lowered = str(text or "").lower()
+    groups = (
+        "grinder", "grinding", "cutting", "sparks", "火花", "磨機", "切割", "熱工",
+        "working at height", "高空工作", "scaffold", "棚架", "gas cylinder", "氣樽",
+        "safety harness", "安全帶", "guardrail", "護欄", "toe board", "踢腳板",
+    )
+    return list(dict.fromkeys(term for term in groups if term in lowered))

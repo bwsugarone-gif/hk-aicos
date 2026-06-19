@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.risk_classifier import get_risk_info
 from utils.report_generator import generate_pdf_report, highlight_report_keywords_html
-from utils.image_safety_hardening import build_concise_image_summary
+from utils.image_safety_hardening import build_concise_image_summary, sanitize_generated_analysis
 from utils.site_logic_engine import format_site_logic_for_report
 from utils.progress_tracker import format_progress_for_report
 from utils.delay_concern_engine import format_delay_concern_for_report
@@ -300,6 +300,12 @@ st.markdown('<h3>📊 工程分析報告</h3>', unsafe_allow_html=True)
 analysis_text = data.get("analysis_result", "")
 _image_analysis = data.get("image_analysis") or {}
 _image_summary = build_concise_image_summary(_image_analysis) if _image_analysis else None
+if _image_analysis:
+    analysis_text, _ = sanitize_generated_analysis(
+        analysis_text,
+        _image_analysis.get("evidence_items") or [],
+        data.get("question", ""),
+    )
 # 清理任何技術性內容（不應出現在客戶版）
 for tech_phrase in [
     "[示範模式", "[DEMO MODE", "No API Key", "API KEY", "Claude", "Anthropic",
@@ -427,7 +433,12 @@ if _conflict_result and not _conflict_result.get("fallback_used"):
     _cr_rec         = _conflict_result.get("final_recommendation", "")
 
     _cc_color = {"Yes": "#28a745", "Limited": "#fd7e14", "No": "#dc3545"}.get(_cr_can, "#6c757d")
-    _cc_label = {"Yes": "✅ 可繼續施工", "Limited": "⚠️ 有限度施工", "No": "🚫 須停工整改"}.get(_cr_can, _cr_can)
+    _cc_label = {
+        "Yes": "✅ 可繼續施工",
+        "Limited": "⚠️ 有限度施工",
+        "No": "🚫 須停工整改",
+        "Review": "📝 需補充資料／人工覆核",
+    }.get(_cr_can, _cr_can)
 
     st.markdown('<div class="report-section">', unsafe_allow_html=True)
     st.markdown('<h3>🤝 Agent 衝突分析</h3>', unsafe_allow_html=True)

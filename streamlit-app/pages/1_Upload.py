@@ -66,6 +66,7 @@ from utils.action_manager import auto_create_action_from_session, load_action_it
 from utils.image_understanding import process_image_with_understanding
 from utils.image_safety_hardening import (
     build_concise_image_summary,
+    filter_unsupported_payload,
     merge_credible_risk,
     sanitize_generated_analysis,
 )
@@ -260,6 +261,12 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
     label_visibility="collapsed",
 )
+manual_image_context = st.text_area(
+    "補充現場描述 / 工序資料（選填）",
+    placeholder="例如：工人正在室內用磨機切門框，現場有火花，未見滅火筒。",
+    help="當 AI 視覺未設定或相片內容不清晰時，此描述會作為使用者提供的證據；請只填寫已知事實。",
+    key="upload_manual_image_context",
+)
 
 # ── 多檔案驗證及處理 ──────────────────────────────────────────────────────────
 all_file_data = []  # list of processed file_data dicts
@@ -332,20 +339,31 @@ if uploaded_files:
             if fd["type"] == "image":
                 try:
                     image_bytes = uf.getvalue()
-                    cache_key = hashlib.sha256(image_bytes).hexdigest()
+                    cache_key = hashlib.sha256(
+                        image_bytes + manual_image_context.strip().encode("utf-8")
+                    ).hexdigest()
                     analysis_cache = st.session_state.setdefault("_image_analysis_cache", {})
                     understanding_result = analysis_cache.get(cache_key)
                     if understanding_result is None:
                         fd["filename"] = uf.name
+                        fd["manual_context"] = manual_image_context.strip()
+                        fd["selected_analysis_type"] = st.session_state.get("selected_analysis_type", "")
                         vision_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+                        gemini_vision_key = os.getenv("GEMINI_API_KEY", "").strip()
                         if not vision_key:
                             try:
                                 vision_key = str(st.secrets.get("ANTHROPIC_API_KEY", "")).strip()
                             except Exception:
                                 vision_key = ""
+                        if not gemini_vision_key:
+                            try:
+                                gemini_vision_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+                            except Exception:
+                                gemini_vision_key = ""
                         understanding_result = process_image_with_understanding(
                             fd,
                             anthropic_api_key=vision_key,
+                            gemini_api_key=gemini_vision_key,
                         )
                         analysis_cache[cache_key] = understanding_result
                     fd["image_understanding"] = understanding_result
@@ -399,8 +417,21 @@ if uploaded_files:
                         category = analysis_data.get("image_category") or analysis_data.get("detected_category", "unknown")
                         visual_confidence = float(analysis_data.get("visual_confidence", 0.0) or 0.0)
                         ocr_text_found = bool(str(analysis_data.get("ocr_text") or "").strip())
+                        raw_metadata = analysis_data.get("raw_metadata") or {}
+                        vision_status = raw_metadata.get("vision") or {}
+                        evidence_context = raw_metadata.get("evidence_context") or {}
                         st.caption("OCR 文字：" + ("已偵測到文字" if ocr_text_found else "未偵測到清晰文字"))
-                        st.caption("視覺分析：已根據可見內容分析")
+                        if evidence_context.get("has_visual_analysis"):
+                            st.success(f"AI 視覺：已啟用（{vision_status.get('provider') or 'vision'}）")
+                            st.caption("視覺分析：已根據可見內容分析")
+                        elif vision_status.get("status") == "error":
+                            st.warning("AI 視覺：失敗，已改為人工覆核模式")
+                            st.info("未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。")
+                        else:
+                            st.info("AI 視覺：未設定")
+                            st.info("未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。")
+                        if evidence_context.get("user_description"):
+                            st.caption("使用者提供證據：" + str(evidence_context["user_description"]))
                         st.info(f"圖片分類：**{category}** · 視覺分析信心 {visual_confidence:.0%}")
                         concise = build_concise_image_summary(analysis_data)
                         st.markdown("#### 相片所見")
@@ -904,8 +935,20 @@ if generate_btn:
                 # Remove image-specific assumptions that are not supported by
                 # independent visual evidence, OCR, or explicit user context.
                 _primary_image_analysis = _image_analyses[0] if _image_analyses else {}
+                _image_manual_review_only = False
                 if _primary_image_analysis:
                     _visual_evidence = _primary_image_analysis.get("evidence_items") or []
+                    _evidence_context = (
+                        _primary_image_analysis.get("raw_metadata", {}).get("evidence_context", {})
+                        if isinstance(_primary_image_analysis.get("raw_metadata"), dict)
+                        else {}
+                    )
+                    _image_manual_review_only = bool(
+                        not _evidence_context.get("has_visual_analysis")
+                        and not _evidence_context.get("has_ocr_text")
+                        and not str(_evidence_context.get("user_description") or "").strip()
+                        and not _evidence_context.get("evidenced_terms")
+                    )
                     analysis_result, _agent_unsupported = sanitize_generated_analysis(
                         analysis_result,
                         _visual_evidence,
@@ -916,9 +959,13 @@ if generate_btn:
                             list(_primary_image_analysis.get("unsupported_assumptions") or [])
                             + _agent_unsupported
                         ))
+                    if _image_manual_review_only:
+                        analysis_result = "未能確認相片中的具體工序；請補充位置、工序及需跟進事項。"
 
                 # Classify risk, then calibrate with Agent risk weights
                 original_risk_level = classify_risk(selected_type, question, analysis_result)
+                if _image_manual_review_only:
+                    original_risk_level = "中風險"
                 if _primary_image_analysis:
                     original_risk_level = merge_credible_risk(
                         original_risk_level,
@@ -973,6 +1020,26 @@ if generate_btn:
                     _pm_risk = conflict_result.get("overall_risk")
                     if _pm_risk and _pm_risk != risk_level:
                         risk_level = _pm_risk
+                    if _primary_image_analysis:
+                        conflict_result, _merged_unsupported = filter_unsupported_payload(
+                            conflict_result,
+                            _visual_evidence,
+                            " ".join([question or "", file_description or "", file_content or ""]),
+                        )
+                        if _merged_unsupported:
+                            _primary_image_analysis["unsupported_assumptions"] = list(dict.fromkeys(
+                                list(_primary_image_analysis.get("unsupported_assumptions") or [])
+                                + _merged_unsupported
+                            ))
+                    if _image_manual_review_only:
+                        conflict_result.update({
+                            "overall_risk": "中風險",
+                            "can_continue": "Review",
+                            "final_recommendation": "需補充資料／人工覆核後再判斷，不可單靠相片決定是否繼續施工。",
+                            "final_action_plan": ["補充位置、工序及需跟進事項，並由管工／安全主任人工覆核。"],
+                            "merged_risks": [],
+                        })
+                        risk_level = "中風險"
                 except Exception:
                     conflict_result = {"fallback_used": True}
 
@@ -1342,7 +1409,12 @@ if generate_btn:
                     _action_plan = conflict_result.get("final_action_plan", [])
 
                     _cc_color = {"Yes": "#28a745", "Limited": "#fd7e14", "No": "#dc3545"}.get(_can_continue, "#6c757d")
-                    _cc_label = {"Yes": "✅ 可繼續施工", "Limited": "⚠️ 有限度施工", "No": "🚫 須停工整改"}.get(_can_continue, _can_continue)
+                    _cc_label = {
+                        "Yes": "✅ 可繼續施工",
+                        "Limited": "⚠️ 有限度施工",
+                        "No": "🚫 須停工整改",
+                        "Review": "📝 需補充資料／人工覆核",
+                    }.get(_can_continue, _can_continue)
 
                     st.markdown(f"""
 <div style="background:#fff8f0;border:1px solid #fd7e14;border-radius:10px;
@@ -1429,6 +1501,23 @@ if generate_btn:
                     site_instruction_result = generate_site_instructions(
                         st.session_state["last_analysis"]
                     )
+                    if _primary_image_analysis:
+                        site_instruction_result, _instruction_unsupported = filter_unsupported_payload(
+                            site_instruction_result,
+                            _visual_evidence,
+                            " ".join([question or "", file_description or "", file_content or ""]),
+                        )
+                        if _instruction_unsupported:
+                            _primary_image_analysis["unsupported_assumptions"] = list(dict.fromkeys(
+                                list(_primary_image_analysis.get("unsupported_assumptions") or [])
+                                + _instruction_unsupported
+                            ))
+                    if _image_manual_review_only:
+                        site_instruction_result = {
+                            "has_instructions": False,
+                            "instructions": [],
+                            "pm_summary": "需補充資料／人工覆核後再判斷。",
+                        }
                     st.session_state["last_analysis"]["site_instruction_result"] = site_instruction_result
                     # Action Tracker: create action items from instructions
                     if site_instruction_result.get("has_instructions"):

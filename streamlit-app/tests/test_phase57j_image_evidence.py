@@ -89,7 +89,7 @@ def test_filename_context_allows_conservative_hot_work_fallback_without_vision(t
     )
 
     assert result.image_category.value in {"hot_work", "cutting_grinding"}
-    assert 0.5 <= result.visual_confidence < 0.65
+    assert result.visual_confidence == 0.0
     assert result.needs_manual_review is True
 
 

@@ -21,6 +21,7 @@ from .source_reference_extractor import (
 
 SAFETY_TYPES = {"safety", "law_regulation"}
 UNCONFIRMED_REFERENCE_NOTICE = "未能從目前來源確認具體章節，請以官方 PDF 原文為準。"
+__all__ = ["answer_question", "safe_answer_question"]
 
 
 def answer_question(
@@ -67,6 +68,8 @@ def safe_answer_question(
     search_scope: str,
     context_snippets: Iterable[KnowledgeSnippet | SearchResult | dict[str, Any]] | None = None,
     answer_mode: str = DEFAULT_ANSWER_MODE,
+    *,
+    raise_on_error: bool = False,
 ) -> tuple[QAResponse, bool]:
     """Run the supported answer API and recover safely from integration errors.
 
@@ -88,6 +91,8 @@ def safe_answer_question(
         )
         return response, False
     except Exception:
+        if raise_on_error:
+            raise
         return (
             _fallback_answer(
                 str(question or "").strip(),

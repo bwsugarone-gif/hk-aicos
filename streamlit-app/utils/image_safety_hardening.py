@@ -69,6 +69,35 @@ def sanitize_generated_analysis(
     return "\n".join(kept), unsupported
 
 
+def filter_unsupported_payload(
+    payload: Any,
+    evidence_items: Iterable[Any] | None = None,
+    explicit_context: str = "",
+) -> tuple[Any, list[str]]:
+    """Recursively remove unsupported guarded claims from merged/action data."""
+    unsupported: list[str] = []
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, str):
+            kept, rejected = filter_unsupported_assumptions([value], evidence_items, explicit_context)
+            unsupported.extend(rejected)
+            return kept[0] if kept else ""
+        if isinstance(value, list):
+            cleaned = [clean(item) for item in value]
+            return [item for item in cleaned if item not in (None, "", [], {})]
+        if isinstance(value, tuple):
+            return tuple(item for item in (clean(entry) for entry in value) if item not in (None, "", [], {}))
+        if isinstance(value, dict):
+            cleaned_dict = {key: clean(item) for key, item in value.items()}
+            for claim_key in ("label", "description", "action", "recommendation"):
+                if str(value.get(claim_key) or "").strip() and not str(cleaned_dict.get(claim_key) or "").strip():
+                    return {}
+            return cleaned_dict
+        return value
+
+    return clean(payload), _dedupe(unsupported)
+
+
 def credible_visual_risk(image_analysis: Any) -> str:
     data = _as_dict(image_analysis)
     category = str(data.get("image_category") or data.get("detected_category") or "unknown")
@@ -115,6 +144,16 @@ def build_concise_image_summary(image_analysis: Any) -> dict[str, Any]:
     evidence_items = _string_items(data.get("evidence_items"))
     risks = _string_items(data.get("risks"))
     unsupported = _string_items(data.get("unsupported_assumptions"))
+    raw_metadata = data.get("raw_metadata") if isinstance(data.get("raw_metadata"), dict) else {}
+    evidence_context = raw_metadata.get("evidence_context") if isinstance(raw_metadata.get("evidence_context"), dict) else {}
+    no_specific_evidence = bool(
+        evidence_context
+        and
+        not evidence_context.get("has_visual_analysis")
+        and not evidence_context.get("has_ocr_text")
+        and not str(evidence_context.get("user_description") or "").strip()
+        and not evidence_context.get("evidenced_terms")
+    )
 
     if category in HOT_WORK_CATEGORIES:
         observations = observations or _hot_work_observations(evidence_items)
@@ -155,16 +194,27 @@ def build_concise_image_summary(image_analysis: Any) -> dict[str, Any]:
         ]
         responsible = ["管工／安全主任／熱工許可證簽發人"]
 
+    if no_specific_evidence:
+        observations = ["未能確認相片中的具體工序；請補充位置、工序及需跟進事項。"]
+        risks = []
+        recommendations = ["補充現場描述或啟用 Vision API，再由管工／安全主任作人工覆核。"]
+        confirmations = ["未有足夠 OCR、AI 視覺或使用者描述證據，暫不判斷具體危害。"]
+        responsible = ["相片提交者／管工"]
+
     # Unsupported assumptions remain available in the typed analysis payload
     # and collapsed debug/evidence UI, but do not enter the client summary.
     ocr_text = str(data.get("ocr_text") or "").strip()
     limitations = [
         "OCR 文字：已偵測到文字，仍須對照原圖。" if ocr_text else "OCR 文字：未偵測到清晰文字。",
-        "視覺分析：已根據可見內容分析；未顯示的控制措施不可當作不存在。",
+        (
+            "視覺分析：已根據可見內容分析；未顯示的控制措施不可當作不存在。"
+            if evidence_context.get("has_visual_analysis")
+            else "未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。"
+        ),
     ]
     return {
         "observations": _dedupe(observations)[:5],
-        "risk_level": credible_visual_risk(data),
+        "risk_level": "需人工覆核" if no_specific_evidence else credible_visual_risk(data),
         "risks": _dedupe(risks)[:5],
         "recommendations": _dedupe(recommendations)[:5],
         "confirmations": _dedupe(confirmations)[:5],

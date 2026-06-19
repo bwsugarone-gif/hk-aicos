@@ -52,6 +52,21 @@ class OCRResult(SerializableModel):
 
 
 @dataclass
+class EvidenceContext(SerializableModel):
+    """Evidence gate shared by image classification, risks, and reporting."""
+
+    has_ocr_text: bool = False
+    ocr_confidence: float = 0.0
+    has_visual_analysis: bool = False
+    visual_confidence: float = 0.0
+    visual_observations: list[str] = field(default_factory=list)
+    user_description: str = ""
+    selected_analysis_type: str = ""
+    evidenced_terms: list[str] = field(default_factory=list)
+    unsupported_terms: list[str] = field(default_factory=list)
+
+
+@dataclass
 class FollowUpSuggestion(SerializableModel):
     title: str
     action: str

@@ -27,7 +27,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .image_safety_hardening import build_concise_image_summary
+from .image_safety_hardening import build_concise_image_summary, sanitize_generated_analysis
 
 # ── UTF-8 stdout/stderr (Windows) ─────────────────────────────────────────────
 if hasattr(sys.stdout, "reconfigure"):
@@ -729,6 +729,13 @@ def generate_pdf_report(
     now        = datetime.now()
     report_id  = f"RPT-{now.strftime('%Y%m%d-%H%M%S')}"
     clean_risk = _normalise_risk(risk_level)
+
+    if image_analysis:
+        analysis_result, _ = sanitize_generated_analysis(
+            analysis_result,
+            image_analysis.get("evidence_items") or [],
+            question,
+        )
 
     combined_text = "\n".join([analysis_type or "", question or "", analysis_result or ""])
     departments   = _department_mapping(combined_text)
