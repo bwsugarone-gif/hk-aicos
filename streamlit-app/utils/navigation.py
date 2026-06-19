@@ -11,8 +11,6 @@ LANGUAGE_WIDGET_KEY = "_aicos_navigation_language_widget"
 
 PRIMARY_PAGES = (
     ("workspace", "pages/0_AICOS_Workspace.py"),
-    ("upload", "pages/1_Upload.py"),
-    ("ask", "pages/10_Ask_AICOS.py"),
     ("records", "pages/11_Records.py"),
     ("report", "pages/2_Report.py"),
     ("history", "pages/3_History.py"),
@@ -22,9 +20,11 @@ PRIMARY_PAGES = (
 )
 
 SECONDARY_PAGES = (
-    ("home", "app.py"),
-    ("memory", "pages/6_Memory_Manager.py"),
+    ("upload", "pages/1_Upload.py"),
+    ("ask", "pages/10_Ask_AICOS.py"),
     ("translate", "pages/5_Translate.py"),
+    ("memory", "pages/6_Memory_Manager.py"),
+    ("home", "app.py"),
     ("about", "pages/4_About.py"),
 )
 

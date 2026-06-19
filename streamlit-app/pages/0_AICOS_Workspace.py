@@ -32,6 +32,7 @@ from utils.search_query_builder import build_hk_official_query
 from utils.site_memory import build_memory_context, list_memory_items, save_memory_item
 from utils.site_record_store import SiteRecordStore
 from utils.web_search_adapter import web_search
+from utils.workspace_preview import build_recent_analysis_preview
 
 
 st.set_page_config(page_title="AICOS 工作台", page_icon="🏗️", layout="wide")
@@ -96,15 +97,24 @@ with upload_col:
     st.page_link("pages/1_Upload.py", label="開啟上載分析", use_container_width=True)
     recent_analysis = st.session_state.get("last_analysis")
     if isinstance(recent_analysis, dict):
+        preview = build_recent_analysis_preview(recent_analysis)
         st.markdown("#### 最近分析預覽")
-        st.markdown(f"**{recent_analysis.get('file_name') or '最近上載'}**")
+        st.markdown(f"**{preview['file_name']}**")
         st.caption(
-            f"{recent_analysis.get('analysis_display_name') or recent_analysis.get('analysis_type') or '分析'} · "
-            f"風險：{recent_analysis.get('risk_level') or '未分類'}"
+            f"{preview['analysis_type']} · 風險：{preview['risk_level']}"
         )
-        preview = " ".join(str(recent_analysis.get("analysis_result") or "").split())
-        if preview:
-            st.write(preview[:360] + ("…" if len(preview) > 360 else ""))
+        st.markdown("**相片所見**" if preview["is_image"] else "**分析摘要**")
+        for item in preview["observations"][:2]:
+            st.markdown(f"- {item}")
+        if preview["recommendations"]:
+            st.markdown("**建議**")
+            for item in preview["recommendations"][:2]:
+                st.markdown(f"- {item}")
+        if preview["confirmations"]:
+            st.markdown("**需確認事項**")
+            for item in preview["confirmations"][:2]:
+                st.markdown(f"- {item}")
+        st.page_link("pages/2_Report.py", label="查看完整分析報告", use_container_width=True)
     else:
         recent_records = SiteRecordStore().list_records(limit=1)
         if recent_records:
