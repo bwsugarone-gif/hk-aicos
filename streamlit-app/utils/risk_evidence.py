@@ -41,12 +41,13 @@ def build_analysis_basis(
             ["公司 SOP／知識庫"]
             if (
                 source_types.intersection({"local_internal", "knowledge", "local_knowledge"})
+                or source_types.intersection({"company_sop", "project_note", "official", "uploaded_document"})
                 or "local_internal" in trust_levels
             )
             else []
         ) + (["官方來源"] if "official_hk" in trust_levels else ["未有官方來源章節"]),
         memory_basis=["地盤記憶／已上載記錄"] if source_types.intersection(
-            {"uploaded_record", "memory", "site_record", "qa_memory"}
+            {"uploaded_record", "memory", "site_record", "qa_memory", "project_memory", "follow_up"}
         ) else [],
         rule_basis=["AICOS 風險規則：" + "、".join(rules)] if rules else [],
         limitations=limitations,

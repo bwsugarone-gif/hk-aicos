@@ -90,7 +90,9 @@ from utils.repeated_issue_detector import (
     detect_repeated_issues,
     format_repeated_issues_for_report,
 )
-from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
+from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace, build_trace_from_analysis
+from utils.followup_store import generate_followups_from_risk_trace
+from utils.memory_indexer import remember_analysis
 from utils.ui_components import compact_link_row, page_header, render_product_footer, render_risk_evidence_trace
 
 st.set_page_config(
@@ -1547,6 +1549,28 @@ if generate_btn:
                     "resource_workforce_result": resource_workforce_result,
                     "repeated_issues_detected": repeated_issues_detected,
                 }
+
+                phase58_saved = st.session_state.setdefault("_phase58_saved_analysis_sessions", set())
+                if current_session_id not in phase58_saved:
+                    try:
+                        phase58_memory = remember_analysis(st.session_state["last_analysis"])
+                        st.session_state["last_analysis"]["project_memory_id"] = phase58_memory.memory_id
+                        phase58_trace, _ = build_trace_from_analysis(st.session_state["last_analysis"])
+                        if (
+                            str(risk_level).lower() in {"high", "critical", "高風險", "極高風險"}
+                            or _image_manual_review_only
+                        ):
+                            generated_followups = generate_followups_from_risk_trace(
+                                phase58_trace,
+                                project_ref=project_ref_clean or None,
+                                source_memory_id=phase58_memory.memory_id,
+                            )
+                            st.session_state["last_analysis"]["phase58_followup_ids"] = [
+                                item.followup_id for item in generated_followups
+                            ]
+                        phase58_saved.add(current_session_id)
+                    except Exception as phase58_error:
+                        print(f"[phase58_memory] WARNING: {phase58_error}", file=sys.stderr)
 
                 # ── Phase 3.3E: Site Instruction & Follow-up Workflow ─────────
                 site_instruction_result = {}

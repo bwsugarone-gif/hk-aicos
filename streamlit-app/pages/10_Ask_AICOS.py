@@ -24,6 +24,7 @@ from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context
+from utils.knowledge_retriever import build_knowledge_pack_context
 from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
@@ -36,6 +37,9 @@ from utils.official_sources import (
 )
 from utils.search_query_builder import build_hk_official_query
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
+from utils.followup_store import build_followup_context
+from utils.memory_indexer import build_project_memory_context
+from utils.project_memory_store import append_memory
 from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, save_memory_item
 from utils.site_record_store import SiteRecordStore, save_qa_session_record
@@ -120,6 +124,7 @@ if st.button("清除／重設", key="clear_ask_aicos"):
         "ask_project_id",
         "ask_remember_answer",
         "ask_memory_id",
+        "ask_project_memory_id",
         "ask_answer_recovered",
         "ask_result",
         "ask_local_sources",
@@ -195,9 +200,13 @@ if submitted:
     else:
         local_sources: list[KnowledgeSnippet] = []
         record_sources: list[KnowledgeSnippet] = []
+        project_memory_sources: list[KnowledgeSnippet] = []
+        followup_sources: list[KnowledgeSnippet] = []
+        knowledge_pack_sources: list[KnowledgeSnippet] = []
         web_sources: list[SearchResult] = []
         if search_scope in {"local_knowledge", "all"}:
             local_sources = search_local_knowledge(question, limit=5)
+            knowledge_pack_sources = build_knowledge_pack_context(question, limit=5)
         if search_scope in {"uploaded_records", "all"}:
             for record in SiteRecordStore().search_records(keyword=question, limit=5):
                 record_sources.append(
@@ -214,6 +223,8 @@ if submitted:
                 )
             record_sources.extend(build_memory_context(question, project_id or None, limit=5))
             record_sources.extend(build_knowledge_context(question, project_id or None, limit=5))
+            project_memory_sources = build_project_memory_context(question, project_id or None, limit=5)
+            followup_sources = build_followup_context(question, project_id or None, limit=5)
         if search_scope in {"web_search", "all"}:
             searched_query = build_hk_official_query(question, question_type, source_mode)
             web_response = web_search(searched_query, limit=5, mode=source_mode)
@@ -222,7 +233,20 @@ if submitted:
         else:
             st.session_state.pop("ask_web_status", None)
 
-        contexts = [*local_sources, *record_sources, *web_sources]
+        contexts = [
+            *local_sources,
+            *knowledge_pack_sources,
+            *record_sources,
+            *project_memory_sources,
+            *followup_sources,
+            *web_sources,
+        ]
+        retrieval_counts = {
+            "memory": len(project_memory_sources),
+            "followups": len(followup_sources),
+            "knowledge": len(local_sources) + len(knowledge_pack_sources),
+            "official": sum(1 for item in contexts if getattr(item, "trust_level", "") == "official_hk"),
+        }
         with st.spinner("AICOS 正在整理資料及建立現場建議…"):
             response, recovered_from_error = safe_answer_question(
                 question=question,
@@ -239,8 +263,15 @@ if submitted:
             "source_mode": source_mode,
             "answer_mode": answer_mode,
             "response": response.to_dict(),
+            "retrieval_counts": retrieval_counts,
+            "project_ref": project_id or None,
         }
-        st.session_state["ask_local_sources"] = [item.to_dict() for item in [*local_sources, *record_sources]]
+        st.session_state["ask_local_sources"] = [
+            item.to_dict() for item in [
+                *local_sources, *knowledge_pack_sources, *record_sources,
+                *project_memory_sources, *followup_sources,
+            ]
+        ]
         st.session_state["ask_web_sources"] = [item.to_dict() for item in web_sources]
         st.session_state.pop("ask_saved_record_id", None)
         st.session_state.pop("ask_memory_id", None)
@@ -262,6 +293,23 @@ if submitted:
                 raw_payload={"question": question, "response": response_data},
             )
             st.session_state["ask_memory_id"] = memory.memory_id
+            project_memory = append_memory({
+                "source_type": "ask_aicos",
+                "project_ref": project_id or None,
+                "title": f"問 AICOS：{question.strip()[:80]}",
+                "summary": response.answer[:2500],
+                "raw_question": question,
+                "answer_summary": response.answer[:1800],
+                "risk_level": response.risk_level,
+                "confidence": response.confidence,
+                "evidence_sources": [item.source_type for item in contexts],
+                "tags": [question_type, answer_mode],
+                "status": "resolved",
+                "priority": "high" if response.risk_level in {"high", "critical"} else "medium",
+                "source_route": "/Ask_AICOS",
+                "metadata": {"retrieval_counts": retrieval_counts},
+            })
+            st.session_state["ask_project_memory_id"] = project_memory.memory_id
 
 
 result = st.session_state.get("ask_result")
@@ -270,6 +318,7 @@ if result:
     source_data = response_data.get("sources", [])
     trust_levels = {item.get("trust_level", "unknown") for item in source_data if isinstance(item, dict)}
     web_status = st.session_state.get("ask_web_status")
+    retrieval_counts = result.get("retrieval_counts") or {"memory": 0, "followups": 0, "knowledge": 0, "official": 0}
     references = extract_source_references(source_data, result["question"])
     official_references = [reference for reference in references if reference.trust_level == "official_hk"]
     source_summary_lines = [format_source_reference(reference) for reference in official_references[:3]]
@@ -310,6 +359,14 @@ if result:
     )
     st.divider()
     render_answer_card(answer_display)
+
+    st.markdown("#### 分析依據")
+    st.markdown(f"- 地盤記憶：找到 {int(retrieval_counts.get('memory', 0))} 條相關記錄")
+    st.markdown(f"- 跟進事項：找到 {int(retrieval_counts.get('followups', 0))} 條未完成")
+    st.markdown(f"- 知識來源：找到 {int(retrieval_counts.get('knowledge', 0))} 個可能相關來源")
+    st.markdown("- 官方來源：" + ("有" if retrieval_counts.get("official") else "未核實"))
+    if not any(int(retrieval_counts.get(key, 0)) for key in ("memory", "followups", "knowledge")):
+        st.info("目前未找到相關工程記憶或知識來源；以下為一般建議，需由現場負責人覆核。")
 
     col_risk, col_confidence, col_mode = st.columns(3)
     with col_risk:

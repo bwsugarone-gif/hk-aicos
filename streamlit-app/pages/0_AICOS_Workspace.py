@@ -25,11 +25,16 @@ from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context, list_source_items
+from utils.knowledge_pack_store import build_or_refresh_knowledge_index, read_knowledge_index
+from utils.knowledge_retriever import build_knowledge_pack_context, summarize_knowledge_hits
 from utils.llm_answer_client import safe_answer_question
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.official_sources import SOURCE_MODE_LABELS_ZH, default_source_mode, source_id_for
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace, build_trace_from_analysis
+from utils.followup_store import build_followup_context, list_followups, summarize_followups, update_followup_status
+from utils.memory_indexer import build_project_memory_context
+from utils.project_memory_store import append_memory, summarize_project_memory
 from utils.search_query_builder import build_hk_official_query
 from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, list_memory_items, save_memory_item
@@ -192,12 +197,18 @@ with ask_col:
             source_mode = default_source_mode(question_type)
             local_contexts: list[KnowledgeSnippet] = []
             web_contexts = []
+            project_memory_contexts: list[KnowledgeSnippet] = []
+            followup_contexts: list[KnowledgeSnippet] = []
+            knowledge_pack_contexts: list[KnowledgeSnippet] = []
             if search_scope in {"local_knowledge", "all"}:
                 local_contexts.extend(search_local_knowledge(quick_question, limit=4))
+                knowledge_pack_contexts = build_knowledge_pack_context(quick_question, limit=4)
             if search_scope in {"uploaded_records", "all"}:
                 local_contexts.extend(_record_context(quick_question))
                 local_contexts.extend(build_memory_context(quick_question, project_id or None, limit=4))
                 local_contexts.extend(build_knowledge_context(quick_question, project_id or None, limit=4))
+                project_memory_contexts = build_project_memory_context(quick_question, project_id or None, limit=4)
+                followup_contexts = build_followup_context(quick_question, project_id or None, limit=4)
             if search_scope in {"web_search", "all"}:
                 searched_query = build_hk_official_query(quick_question, question_type, source_mode)
                 web_response = web_search(searched_query, limit=5, mode=source_mode)
@@ -207,11 +218,15 @@ with ask_col:
                 st.session_state.pop("ask_web_status", None)
 
             with st.spinner("AICOS 正在整理現場建議及來源…"):
+                all_contexts = [
+                    *local_contexts, *knowledge_pack_contexts,
+                    *project_memory_contexts, *followup_contexts, *web_contexts,
+                ]
                 response, recovered_from_error = safe_answer_question(
                     question=quick_question,
                     question_type=question_type,
                     search_scope=search_scope,
-                    context_snippets=[*local_contexts, *web_contexts],
+                    context_snippets=all_contexts,
                     answer_mode=answer_mode,
                 )
             if recovered_from_error:
@@ -219,6 +234,12 @@ with ask_col:
             else:
                 st.session_state["workspace_answer_recovered"] = False
             response_data = response.to_dict()
+            retrieval_counts = {
+                "memory": len(project_memory_contexts),
+                "followups": len(followup_contexts),
+                "knowledge": len(local_contexts) + len(knowledge_pack_contexts),
+                "official": sum(1 for item in all_contexts if getattr(item, "trust_level", "") == "official_hk"),
+            }
             st.session_state["workspace_quick_result"] = response_data
             st.session_state["ask_result"] = {
                 "question": quick_question,
@@ -227,8 +248,15 @@ with ask_col:
                 "source_mode": source_mode,
                 "answer_mode": answer_mode,
                 "response": response_data,
+                "retrieval_counts": retrieval_counts,
+                "project_ref": project_id or None,
             }
-            st.session_state["ask_local_sources"] = [item.to_dict() for item in local_contexts]
+            st.session_state["ask_local_sources"] = [
+                item.to_dict() for item in [
+                    *local_contexts, *knowledge_pack_contexts,
+                    *project_memory_contexts, *followup_contexts,
+                ]
+            ]
             st.session_state["ask_web_sources"] = [item.to_dict() for item in web_contexts]
             if remember_answer:
                 memory = save_memory_item(
@@ -247,6 +275,23 @@ with ask_col:
                     raw_payload={"question": quick_question, "response": response_data},
                 )
                 st.session_state["workspace_saved_memory_id"] = memory.memory_id
+                project_memory = append_memory({
+                    "source_type": "ask_aicos",
+                    "project_ref": project_id or None,
+                    "title": f"問 AICOS：{quick_question[:80]}",
+                    "summary": response.answer[:2500],
+                    "raw_question": quick_question,
+                    "answer_summary": response.answer[:1800],
+                    "risk_level": response.risk_level,
+                    "confidence": response.confidence,
+                    "evidence_sources": [item.source_type for item in all_contexts],
+                    "tags": [question_type, answer_mode],
+                    "status": "resolved",
+                    "priority": "high" if response.risk_level in {"high", "critical"} else "medium",
+                    "source_route": "/AICOS_Workspace",
+                    "metadata": {"retrieval_counts": retrieval_counts},
+                })
+                st.session_state["workspace_project_memory_id"] = project_memory.memory_id
 
     quick_result = st.session_state.get("workspace_quick_result")
     if isinstance(quick_result, dict):
@@ -292,7 +337,66 @@ with ask_col:
         )
         render_answer_card(display, compact=True)
         render_risk_evidence_trace(quick_trace, quick_basis, compact=True)
+        quick_counts = (st.session_state.get("ask_result") or {}).get("retrieval_counts") or {}
+        st.caption(
+            f"分析依據：地盤記憶 {int(quick_counts.get('memory', 0))} · "
+            f"未完成跟進 {int(quick_counts.get('followups', 0))} · "
+            f"知識來源 {int(quick_counts.get('knowledge', 0))}"
+        )
+        if not any(int(quick_counts.get(key, 0)) for key in ("memory", "followups", "knowledge")):
+            st.info("目前未找到相關工程記憶或知識來源；以下為一般建議，需由現場負責人覆核。")
         st.page_link("pages/10_Ask_AICOS.py", label="查看完整答案及來源", use_container_width=True)
+
+st.divider()
+st.subheader("🧠 工程記憶與跟進")
+project_filter = st.text_input("工程篩選（選填）", key="phase58_project_filter", placeholder="例如：BW-001")
+memory_summary = summarize_project_memory(project_filter or None)
+followup_summary = summarize_followups(project_filter or None)
+knowledge_index = read_knowledge_index()
+knowledge_summary = summarize_knowledge_hits(knowledge_index)
+dashboard_metrics = st.columns(4)
+dashboard_metrics[0].metric("工程記憶", memory_summary.total_records)
+dashboard_metrics[1].metric("未完成跟進", followup_summary["open_count"])
+dashboard_metrics[2].metric("高風險記憶", memory_summary.high_risk_count)
+dashboard_metrics[3].metric("知識來源", knowledge_summary["total"])
+
+with st.expander("今日 / 最近工程記憶", expanded=True):
+    if not memory_summary.recent_records:
+        st.caption("尚未有 Phase 5.8 工程記憶。")
+    for item in memory_summary.recent_records[:3]:
+        st.markdown(f"**{item.title}**")
+        st.caption(f"工程：{item.project_ref or '未指定'} · 風險：{item.risk_level or '未分類'} · 狀態：{item.status}")
+
+with st.expander("未完成跟進", expanded=True):
+    open_followups = list_followups(project_ref=project_filter or None, limit=5)
+    open_followups = [item for item in open_followups if item.status in {"open", "in_progress", "waiting"}]
+    if not open_followups:
+        st.caption("目前沒有未完成跟進。")
+    for item in open_followups:
+        st.markdown(f"**[{item.priority.upper()}] {item.title}**")
+        st.caption(f"負責：{item.responsible_role or '未指定'} · 時限：{item.due_hint or '待確認'} · 狀態：{item.status}")
+        if item.status == "open" and st.button("標記為進行中", key=f"start_followup_{item.followup_id}"):
+            update_followup_status(item.followup_id, "in_progress", "由 AICOS 工作台更新")
+            st.rerun()
+
+with st.expander("重複風險提示"):
+    if not memory_summary.repeated_tags:
+        st.caption("尚未偵測到重複風險主題。")
+    for tag, count in memory_summary.repeated_tags:
+        st.markdown(f"- {tag} 出現 {count} 次")
+
+with st.expander("知識來源狀態"):
+    trust_counts = knowledge_summary.get("trust_counts", {})
+    st.caption(
+        f"官方 {trust_counts.get('official', 0)} · 可信 {trust_counts.get('trusted', 0)} · "
+        f"內部 {trust_counts.get('internal', 0)} · 未核實 {trust_counts.get('unverified', 0)}"
+    )
+    if knowledge_summary.get("last_indexed_at"):
+        st.caption("最後索引：" + str(knowledge_summary["last_indexed_at"])[:19].replace("T", " "))
+    if st.button("更新本機知識索引", use_container_width=True):
+        indexed = build_or_refresh_knowledge_index()
+        st.success(f"已更新 {len(indexed)} 個本機知識來源。")
+        st.rerun()
 
 st.divider()
 st.subheader("🧠 記憶 / Knowledge")
