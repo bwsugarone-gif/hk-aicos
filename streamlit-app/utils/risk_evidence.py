@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from .analysis_models import AnalysisBasis, RiskEvidenceTrace
+from .evidence_models import AnalysisBasis, RiskEvidenceTrace
 
 
 _CUTTING_TERMS = ("磨機", "角磨機", "砂輪", "切割", "grinder", "grinding", "cutting")
@@ -28,6 +28,11 @@ def build_analysis_basis(
     trust_levels = {str(item.get("trust_level") or "").lower() for item in source_items}
     has_visual_content = bool(has_visual_analysis or _clean_items(visual_observations))
     rules = _clean_items(rules_matched)
+    limitations = []
+    if not has_visual_content:
+        limitations.append("未有 AI 視覺確認")
+    if "official_hk" not in trust_levels:
+        limitations.append("未有官方來源章節")
     return AnalysisBasis(
         text_extraction_basis=["文字偵測／文件文字"] if str(ocr_text or "").strip() else [],
         vision_basis=["AI 視覺確認"] if has_visual_content else ["未有 AI 視覺確認"],
@@ -44,6 +49,7 @@ def build_analysis_basis(
             {"uploaded_record", "memory", "site_record", "qa_memory"}
         ) else [],
         rule_basis=["AICOS 風險規則：" + "、".join(rules)] if rules else [],
+        limitations=limitations,
     )
 
 
@@ -56,6 +62,7 @@ def summarize_analysis_basis(basis: AnalysisBasis) -> list[str]:
         *basis.memory_basis,
         *basis.knowledge_basis,
         *basis.rule_basis,
+        *basis.limitations,
     ]
     return list(dict.fromkeys(item for item in values if item))[:8]
 

@@ -8,7 +8,7 @@ from html import escape
 import streamlit as st
 
 from .answer_formatter import AnswerDisplayModel
-from .analysis_models import AnalysisBasis, RiskEvidenceTrace
+from .evidence_models import AnalysisBasis, RiskEvidenceTrace
 from .risk_evidence import summarize_analysis_basis
 
 

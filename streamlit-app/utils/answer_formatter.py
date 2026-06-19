@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .analysis_models import AnalysisBasis, RiskEvidenceTrace
+from .evidence_models import AnalysisBasis, RiskEvidenceTrace
 from .answer_modes import DEFAULT_ANSWER_MODE, normalize_answer_mode
 from .risk_evidence import summarize_analysis_basis
 

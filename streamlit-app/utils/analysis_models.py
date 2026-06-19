@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
+from .evidence_models import AnalysisBasis, RiskEvidenceTrace
+
 
 class ImageCategory(str, Enum):
     SAFETY_ISSUE = "safety_issue"
@@ -64,31 +66,6 @@ class EvidenceContext(SerializableModel):
     selected_analysis_type: str = ""
     evidenced_terms: list[str] = field(default_factory=list)
     unsupported_terms: list[str] = field(default_factory=list)
-
-
-@dataclass
-class AnalysisBasis(SerializableModel):
-    """Internal evidence-role classification with provider-neutral labels."""
-
-    text_extraction_basis: list[str] = field(default_factory=list)
-    vision_basis: list[str] = field(default_factory=list)
-    manual_description_basis: list[str] = field(default_factory=list)
-    knowledge_basis: list[str] = field(default_factory=list)
-    memory_basis: list[str] = field(default_factory=list)
-    rule_basis: list[str] = field(default_factory=list)
-
-
-@dataclass
-class RiskEvidenceTrace(SerializableModel):
-    """User-auditable risk rationale without hidden chain-of-thought."""
-
-    risk_level: str = "unknown"
-    triggered_by: list[str] = field(default_factory=list)
-    evidence_sources: list[str] = field(default_factory=list)
-    rules_matched: list[str] = field(default_factory=list)
-    missing_confirmations: list[str] = field(default_factory=list)
-    confidence_reason: str = ""
-    final_reason: str = ""
 
 
 @dataclass
