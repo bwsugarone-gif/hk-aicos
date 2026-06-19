@@ -93,6 +93,7 @@ from utils.repeated_issue_detector import (
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace, build_trace_from_analysis
 from utils.followup_store import generate_followups_from_risk_trace
 from utils.memory_indexer import remember_analysis
+from utils.provider_health import get_provider_health
 from utils.ui_components import compact_link_row, page_header, render_product_footer, render_risk_evidence_trace
 
 st.set_page_config(
@@ -240,6 +241,11 @@ compact_link_row([
     ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
     ("pages/11_Records.py", "🗂️ 地盤記錄"),
 ])
+provider_health = get_provider_health()
+st.caption(provider_health.user_message)
+with st.expander("技術狀態", expanded=False):
+    for note in provider_health.technical_notes:
+        st.caption(note)
 workspace_handoff = st.session_state.get("workspace_upload_handoff")
 if isinstance(workspace_handoff, dict) and workspace_handoff.get("name"):
     st.info(
@@ -431,7 +437,7 @@ if uploaded_files:
                             st.success("AI 視覺：已啟用")
                             st.caption("視覺分析：已根據可見內容分析")
                         elif vision_status.get("status") == "error":
-                            st.warning("AI 視覺：失敗，已改為人工覆核模式")
+                            st.warning("AI 視覺暫時未能完成；已改用現場描述及人工覆核模式。")
                             st.info("請補充工序描述，AICOS 會根據你提供的描述作風險判斷。")
                         else:
                             st.info("AI 視覺：未設定")

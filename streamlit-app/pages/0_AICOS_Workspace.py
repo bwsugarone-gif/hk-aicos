@@ -35,6 +35,10 @@ from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace,
 from utils.followup_store import build_followup_context, list_followups, summarize_followups, update_followup_status
 from utils.memory_indexer import build_project_memory_context
 from utils.project_memory_store import append_memory, summarize_project_memory
+from utils.provider_health import get_provider_health
+from utils.rag_indexer import build_rag_index_from_knowledge_sources, read_rag_index
+from utils.rag_retriever import build_rag_context
+from utils.runtime_storage_health import get_runtime_storage_status
 from utils.search_query_builder import build_hk_official_query
 from utils.service_readiness import get_service_readiness
 from utils.site_memory import build_memory_context, list_memory_items, save_memory_item
@@ -99,6 +103,12 @@ compact_link_row((
     ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
     ("pages/11_Records.py", "🗂️ 地盤記錄"),
 ))
+
+provider_health = get_provider_health()
+st.caption(provider_health.user_message)
+with st.expander("技術狀態", expanded=False):
+    for note in provider_health.technical_notes:
+        st.caption(note)
 
 st.divider()
 upload_col, ask_col = st.columns(2, gap="large")
@@ -200,9 +210,11 @@ with ask_col:
             project_memory_contexts: list[KnowledgeSnippet] = []
             followup_contexts: list[KnowledgeSnippet] = []
             knowledge_pack_contexts: list[KnowledgeSnippet] = []
+            rag_contexts: list[KnowledgeSnippet] = []
             if search_scope in {"local_knowledge", "all"}:
                 local_contexts.extend(search_local_knowledge(quick_question, limit=4))
                 knowledge_pack_contexts = build_knowledge_pack_context(quick_question, limit=4)
+                rag_contexts = build_rag_context(quick_question, project_id or None, limit=4)
             if search_scope in {"uploaded_records", "all"}:
                 local_contexts.extend(_record_context(quick_question))
                 local_contexts.extend(build_memory_context(quick_question, project_id or None, limit=4))
@@ -219,7 +231,7 @@ with ask_col:
 
             with st.spinner("AICOS 正在整理現場建議及來源…"):
                 all_contexts = [
-                    *local_contexts, *knowledge_pack_contexts,
+                    *local_contexts, *knowledge_pack_contexts, *rag_contexts,
                     *project_memory_contexts, *followup_contexts, *web_contexts,
                 ]
                 response, recovered_from_error = safe_answer_question(
@@ -238,6 +250,7 @@ with ask_col:
                 "memory": len(project_memory_contexts),
                 "followups": len(followup_contexts),
                 "knowledge": len(local_contexts) + len(knowledge_pack_contexts),
+                "rag": len(rag_contexts),
                 "official": sum(1 for item in all_contexts if getattr(item, "trust_level", "") == "official_hk"),
             }
             st.session_state["workspace_quick_result"] = response_data
@@ -253,7 +266,7 @@ with ask_col:
             }
             st.session_state["ask_local_sources"] = [
                 item.to_dict() for item in [
-                    *local_contexts, *knowledge_pack_contexts,
+                    *local_contexts, *knowledge_pack_contexts, *rag_contexts,
                     *project_memory_contexts, *followup_contexts,
                 ]
             ]
@@ -341,24 +354,30 @@ with ask_col:
         st.caption(
             f"分析依據：地盤記憶 {int(quick_counts.get('memory', 0))} · "
             f"未完成跟進 {int(quick_counts.get('followups', 0))} · "
-            f"知識來源 {int(quick_counts.get('knowledge', 0))}"
+            f"知識來源 {int(quick_counts.get('knowledge', 0))} · "
+            f"RAG 片段 {int(quick_counts.get('rag', 0))}"
         )
-        if not any(int(quick_counts.get(key, 0)) for key in ("memory", "followups", "knowledge")):
+        if not any(int(quick_counts.get(key, 0)) for key in ("memory", "followups", "knowledge", "rag")):
             st.info("目前未找到相關工程記憶或知識來源；以下為一般建議，需由現場負責人覆核。")
         st.page_link("pages/10_Ask_AICOS.py", label="查看完整答案及來源", use_container_width=True)
 
 st.divider()
 st.subheader("🧠 工程記憶與跟進")
+storage_health = get_runtime_storage_status()
+if storage_health.warning_message:
+    st.warning(storage_health.warning_message)
 project_filter = st.text_input("工程篩選（選填）", key="phase58_project_filter", placeholder="例如：BW-001")
 memory_summary = summarize_project_memory(project_filter or None)
 followup_summary = summarize_followups(project_filter or None)
 knowledge_index = read_knowledge_index()
 knowledge_summary = summarize_knowledge_hits(knowledge_index)
-dashboard_metrics = st.columns(4)
+rag_chunks = read_rag_index()
+dashboard_metrics = st.columns(5)
 dashboard_metrics[0].metric("工程記憶", memory_summary.total_records)
 dashboard_metrics[1].metric("未完成跟進", followup_summary["open_count"])
 dashboard_metrics[2].metric("高風險記憶", memory_summary.high_risk_count)
 dashboard_metrics[3].metric("知識來源", knowledge_summary["total"])
+dashboard_metrics[4].metric("RAG 片段", len(rag_chunks))
 
 with st.expander("今日 / 最近工程記憶", expanded=True):
     if not memory_summary.recent_records:
@@ -396,6 +415,10 @@ with st.expander("知識來源狀態"):
     if st.button("更新本機知識索引", use_container_width=True):
         indexed = build_or_refresh_knowledge_index()
         st.success(f"已更新 {len(indexed)} 個本機知識來源。")
+        st.rerun()
+    if st.button("更新 SOP / RAG 索引", use_container_width=True):
+        chunks = build_rag_index_from_knowledge_sources()
+        st.success(f"已建立 {len(chunks)} 個 RAG 知識片段。")
         st.rerun()
 
 st.divider()

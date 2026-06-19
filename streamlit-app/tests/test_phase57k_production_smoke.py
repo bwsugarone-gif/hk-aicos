@@ -190,5 +190,5 @@ def test_upload_page_has_manual_context_and_safe_vision_status_copy():
     assert "補充現場描述 / 工序資料（選填）" in source
     assert "AI 視覺：已啟用" in source
     assert "AI 視覺：未設定" in source
-    assert "AI 視覺：失敗，已改為人工覆核模式" in source
+    assert "AI 視覺暫時未能完成；已改用現場描述及人工覆核模式。" in source
     assert "請補充工序描述，AICOS 會根據你提供的描述作風險判斷。" in source
