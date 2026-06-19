@@ -176,4 +176,6 @@ def test_ask_aicos_ui_defaults_and_collapsed_source_contract():
     assert 'index=list(ANSWER_MODE_LABELS).index(DEFAULT_ANSWER_MODE)' in source
     assert '"回答模式"' in source
     assert '"查看完整來源摘錄：{title}"' in source
-    assert 'st.markdown(response_data["answer"])' in source
+    assert "format_answer_display(" in source
+    assert "render_answer_card(answer_display)" in source
+    assert 'st.markdown(response_data["answer"])' not in source

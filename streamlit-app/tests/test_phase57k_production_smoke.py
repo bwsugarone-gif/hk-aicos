@@ -191,4 +191,4 @@ def test_upload_page_has_manual_context_and_safe_vision_status_copy():
     assert "AI 視覺：已啟用" in source
     assert "AI 視覺：未設定" in source
     assert "AI 視覺：失敗，已改為人工覆核模式" in source
-    assert "未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。" in source
+    assert "請補充工序描述，AICOS 會根據你提供的描述作風險判斷。" in source

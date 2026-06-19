@@ -164,7 +164,8 @@ def test_sample_grinder_summary_focuses_only_on_supported_hot_work(monkeypatch, 
 def test_upload_ui_uses_separate_ocr_and_visual_status_copy():
     app_root = Path(__file__).resolve().parents[1]
     upload_page = (app_root / "pages" / "1_Upload.py").read_text(encoding="utf-8")
-    assert "未偵測到清晰文字；仍可根據相片內容作視覺風險分析。" in upload_page
-    assert "OCR 文字：" in upload_page
+    assert "未偵測到清晰文字；地盤相片主要會使用 AI 視覺或現場描述作分析。" in upload_page
+    assert "文字偵測：" in upload_page
+    assert "OCR 文字：" not in upload_page
     assert "視覺分析：已根據可見內容分析" in upload_page
-    assert "視覺分析信心" in upload_page
+    assert 'if evidence_context.get("has_visual_analysis") and visual_confidence > 0:' in upload_page

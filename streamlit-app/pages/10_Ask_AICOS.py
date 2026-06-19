@@ -20,6 +20,7 @@ except ImportError:
     pass
 
 from utils.analysis_models import KnowledgeSnippet, QAResponse, SearchResult
+from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context
@@ -43,6 +44,7 @@ from utils.source_reference_extractor import (
     has_specific_reference,
 )
 from utils.web_search_adapter import web_search
+from utils.ui_components import compact_link_row, page_header, render_answer_card, render_product_footer, risk_badge
 
 
 st.set_page_config(page_title="問 AICOS", page_icon="💬", layout="wide")
@@ -93,14 +95,11 @@ with st.sidebar:
     st.markdown("---")
     render_navigation_links()
 
-st.title("問 AICOS")
-st.caption("毋須上載圖片：直接查詢安全、法例、施工方法、物料、文件及既有地盤記錄。")
-
-quick_upload, quick_records = st.columns(2)
-with quick_upload:
-    st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
-with quick_records:
-    st.page_link("pages/11_Records.py", label="🗂️ 查看地盤記錄", use_container_width=True)
+page_header("問 AICOS", "查詢安全、法例、施工方法、物料、文件及既有地盤記錄。", "💬")
+compact_link_row((
+    ("pages/1_Upload.py", "📤 上載相片／文件"),
+    ("pages/11_Records.py", "🗂️ 查看地盤記錄"),
+))
 
 if st.button("清除／重設", key="clear_ask_aicos"):
     for key in (
@@ -262,31 +261,41 @@ if result:
     source_data = response_data.get("sources", [])
     trust_levels = {item.get("trust_level", "unknown") for item in source_data if isinstance(item, dict)}
     web_status = st.session_state.get("ask_web_status")
-    st.divider()
-    st.subheader("AICOS 回覆")
-    st.markdown(response_data["answer"])
-    if st.session_state.get("ask_answer_recovered"):
-        st.warning("AICOS 暫時未能使用部分搜尋內容，已改用安全的本機後備答案。")
-    if st.session_state.get("ask_memory_id"):
-        st.success(f"已儲存 AICOS 問答記憶：{st.session_state['ask_memory_id']}")
-
-    col_risk, col_confidence, col_mode = st.columns(3)
-    col_risk.metric("風險級別", response_data["risk_level"].upper())
-    col_confidence.metric("信心度", f"{float(response_data['confidence']):.0%}")
-    col_mode.metric("回答模式", ANSWER_MODE_LABELS.get(result.get("answer_mode"), ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE]))
-    st.caption("回答引擎：" + ("本機後備" if response_data["fallback_used"] else response_data["model_name"]))
-
-    if result["question_type"] in {"safety", "law_regulation"}:
-        st.warning("安全／法例資料必須以香港官方最新版本及合資格人士意見作最終核實；此回覆並非正式法律意見。")
-    if response_data.get("fallback_used"):
-        st.info("目前使用本機回答後備模式；建議仍須按現場及最新官方文件覆核。")
-    if result["question_type"] == "law_regulation" and "official_hk" not in trust_levels:
-        st.error("本次沒有找到香港官方來源。作出合規或法律決定前，請查閱香港法例電子版或相關政府部門最新資料。")
-    if result["question_type"] == "safety" and not trust_levels.intersection({"official_hk", "trusted_industry"}):
-        st.warning("本次沒有官方或可信行業來源；請由安全主任及最新官方指引覆核。")
-
     references = extract_source_references(source_data, result["question"])
     official_references = [reference for reference in references if reference.trust_level == "official_hk"]
+    source_summary_lines = [format_source_reference(reference) for reference in official_references[:3]]
+    review_warnings = []
+    if st.session_state.get("ask_answer_recovered"):
+        review_warnings.append("部分搜尋內容暫時不可用，已改用安全的本機備用答案。")
+    if result["question_type"] in {"safety", "law_regulation"}:
+        review_warnings.append("安全／法例資料須按香港官方最新版本及合資格人士意見覆核；本回覆並非正式法律意見。")
+    if result["question_type"] == "law_regulation" and "official_hk" not in trust_levels:
+        review_warnings.append("本次沒有可核實香港官方來源；作出合規決定前請查閱官方最新資料。")
+    elif result["question_type"] == "safety" and not trust_levels.intersection({"official_hk", "trusted_industry"}):
+        review_warnings.append("本次沒有官方或可信行業來源；請由安全主任按最新指引覆核。")
+    answer_display = format_answer_display(
+        response_data.get("answer", ""),
+        answer_mode=result.get("answer_mode", DEFAULT_ANSWER_MODE),
+        risk_level=response_data.get("risk_level", "unknown"),
+        confidence=response_data.get("confidence", 0.0),
+        source_summary=source_summary_lines,
+        warnings=review_warnings,
+        source_available="official_hk" in trust_levels,
+        memory_save_status=(
+            f"已儲存 AICOS 問答記憶：{st.session_state['ask_memory_id']}"
+            if st.session_state.get("ask_memory_id") else ""
+        ),
+        fallback_used=bool(response_data.get("fallback_used")),
+    )
+    st.divider()
+    render_answer_card(answer_display)
+
+    col_risk, col_confidence, col_mode = st.columns(3)
+    with col_risk:
+        st.caption("風險級別")
+        risk_badge(response_data["risk_level"])
+    col_confidence.metric("回答信心", answer_display.confidence_label)
+    col_mode.metric("回答模式", ANSWER_MODE_LABELS.get(result.get("answer_mode"), ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE]))
     st.markdown("#### 具體來源參考")
     if official_references:
         for reference in official_references[:3]:
@@ -354,3 +363,5 @@ if result:
         )
         st.session_state["ask_saved_record_id"] = saved.record_id
         st.rerun()
+
+render_product_footer()

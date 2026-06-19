@@ -124,7 +124,7 @@ def test_workspace_and_memory_integration_contracts_are_present():
     ask_page = (app_root / "pages" / "10_Ask_AICOS.py").read_text(encoding="utf-8")
     upload_page = (app_root / "pages" / "1_Upload.py").read_text(encoding="utf-8")
 
-    assert 'st.title("🏗️ AICOS 工作台")' in workspace
+    assert 'page_header("AICOS 工作台"' in workspace
     assert 'st.columns(2, gap="large")' in workspace
     assert "build_memory_context" in workspace
     assert "build_knowledge_context" in workspace

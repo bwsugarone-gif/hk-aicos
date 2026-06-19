@@ -1,6 +1,6 @@
 """
 pages/1_Upload.py
-HK-AICOS Phase 2.0 - 上載分析頁（客戶版）
+HK-AICOS Phase 5.7 - 上載分析頁（客戶版）
 
 Buildway Tech (HK) Limited
 """
@@ -90,6 +90,7 @@ from utils.repeated_issue_detector import (
     detect_repeated_issues,
     format_repeated_issues_for_report,
 )
+from utils.ui_components import compact_link_row, page_header, render_product_footer
 
 st.set_page_config(
     page_title="上載分析 | HK-AICOS",
@@ -227,20 +228,15 @@ with st.sidebar:
     st.markdown('<div style="font-size:0.78rem; color:#aac4e0;">🔒 所有資料安全處理</div>', unsafe_allow_html=True)
 
 # ── Page Header ───────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="page-header">
-    <h2>📤 上載分析</h2>
-    <p>上載工程相片、圖紙或 PDF，選擇分析類型，取得 AI 工程分析報告。</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Keep the two Phase 5 workflows visible even when the sidebar is collapsed.
-st.caption("AICOS 快捷功能")
-quick_ask, quick_records = st.columns(2)
-with quick_ask:
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
-with quick_records:
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄", use_container_width=True)
+page_header(
+    "上載分析",
+    "上載工程相片或文件，以 AI 視覺、文字偵測及現場描述輔助分析。",
+    "📤",
+)
+compact_link_row([
+    ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
+    ("pages/11_Records.py", "🗂️ 地盤記錄"),
+])
 
 # ── 第一步：上載文件 ──────────────────────────────────────────────────────────
 MAX_FILES = 3
@@ -267,6 +263,7 @@ manual_image_context = st.text_area(
     help="當 AI 視覺未設定或相片內容不清晰時，此描述會作為使用者提供的證據；請只填寫已知事實。",
     key="upload_manual_image_context",
 )
+st.caption("相片分析：靠 AI 視覺 + 你補充的工序描述。OCR 只會在相中有清晰文字時輔助。")
 
 # ── 多檔案驗證及處理 ──────────────────────────────────────────────────────────
 all_file_data = []  # list of processed file_data dicts
@@ -380,7 +377,7 @@ if uploaded_files:
                 with col2:
                     st.success(f"✅ 圖片已載入：{uf.name}")
                     if ocr_status == "OCR_SUCCESS":
-                        st.success("✅ 已透過 OCR 成功抽取文字")
+                        st.success("文字偵測：已偵測到清晰文字")
                         
                         # Show image understanding results
                         img_understanding = fd.get("image_understanding")
@@ -392,7 +389,7 @@ if uploaded_files:
                                 st.warning("⚠️ 此圖片包含安全警告或風險關鍵字")
                             
                             # Show extracted info in expander
-                            with st.expander("📋 圖片文字辨識詳情"):
+                            with st.expander("📋 文字偵測詳情"):
                                 if structured.get("safety_keywords_found"):
                                     st.markdown(f"**安全關鍵字：** {', '.join(structured['safety_keywords_found'])}")
                                 if structured.get("warnings"):
@@ -410,7 +407,7 @@ if uploaded_files:
                                     st.text_area("辨識到的文字", value=preview, height=150, disabled=True)
                     
                     elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
-                        st.info("未偵測到清晰文字；仍可根據相片內容作視覺風險分析。")
+                        st.info("未偵測到清晰文字；地盤相片主要會使用 AI 視覺或現場描述作分析。")
 
                     analysis_data = fd.get("image_analysis") or {}
                     if analysis_data:
@@ -420,19 +417,24 @@ if uploaded_files:
                         raw_metadata = analysis_data.get("raw_metadata") or {}
                         vision_status = raw_metadata.get("vision") or {}
                         evidence_context = raw_metadata.get("evidence_context") or {}
-                        st.caption("OCR 文字：" + ("已偵測到文字" if ocr_text_found else "未偵測到清晰文字"))
+                        st.caption("文字偵測：" + ("已偵測到文字" if ocr_text_found else "未偵測到清晰文字"))
                         if evidence_context.get("has_visual_analysis"):
                             st.success(f"AI 視覺：已啟用（{vision_status.get('provider') or 'vision'}）")
                             st.caption("視覺分析：已根據可見內容分析")
                         elif vision_status.get("status") == "error":
                             st.warning("AI 視覺：失敗，已改為人工覆核模式")
-                            st.info("未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。")
+                            st.info("請補充工序描述，AICOS 會根據你提供的描述作風險判斷。")
                         else:
                             st.info("AI 視覺：未設定")
-                            st.info("未能進行 AI 視覺辨識；請補充工序描述或啟用 Vision API。")
+                            st.info("請補充工序描述，AICOS 會根據你提供的描述作風險判斷。")
                         if evidence_context.get("user_description"):
-                            st.caption("使用者提供證據：" + str(evidence_context["user_description"]))
-                        st.info(f"圖片分類：**{category}** · 視覺分析信心 {visual_confidence:.0%}")
+                            st.caption("已使用你提供的現場描述作分析依據。")
+                        if evidence_context.get("has_visual_analysis") and visual_confidence > 0:
+                            st.info(f"圖片分類：**{category}** · 視覺分析信心 {visual_confidence:.0%}")
+                        elif evidence_context.get("user_description"):
+                            st.info(f"根據現場描述的初步分類：**{category}**")
+                        else:
+                            st.info("圖片分類：**需人工覆核**")
                         concise = build_concise_image_summary(analysis_data)
                         st.markdown("#### 相片所見")
                         for observation in concise["observations"]:
@@ -485,11 +487,11 @@ if uploaded_files:
             elif fd["type"] == "pdf":
                 st.success(f"✅ PDF 已載入：{uf.name}")
                 if ocr_status == "OCR_SUCCESS":
-                    st.success("已透過 OCR 成功抽取文字")
+                    st.success("文件文字抽取：已成功")
                 elif ocr_status in {"OCR_FAILED", "OCR_UNAVAILABLE"}:
-                    st.warning("未能透過 OCR 抽取文字，請提供較清晰文件或可選取文字 PDF。")
+                    st.warning("未能抽取文件文字，請提供較清晰文件或可選取文字的 PDF。")
                 elif ocr_status == "OCR_REQUIRED":
-                    st.info("此文件可能為掃描 PDF，OCR 將於 Phase 3.2 支援。")
+                    st.info("此 PDF 可能是掃描文件，請上載較清晰版本或補充文件內容。")
                 if ocr_warning:
                     st.info(ocr_warning)
                 with st.expander(f"預覽：{uf.name}"):
@@ -848,6 +850,12 @@ if generate_btn:
         _image_risk_elevated = False
         _image_risk_reason = ""
         _image_analyses = []
+        _has_image_input = any(_fd.get("type") == "image" for _fd in _all_fd)
+        _manual_image_contexts = [
+            str(_fd.get("manual_context") or "").strip()
+            for _fd in _all_fd
+            if _fd.get("type") == "image" and str(_fd.get("manual_context") or "").strip()
+        ]
         for _fd in _all_fd:
             _img_und = _fd.get("image_understanding")
             if _img_und and _img_und.get("image_text_context"):
@@ -864,6 +872,14 @@ if generate_btn:
                     _image_risk_reason = _img_und.get("risk_elevation_reason", "")
 
         _combined_image_context = "\n\n".join(_image_text_context_parts)
+        _manual_image_context_text = "\n".join(dict.fromkeys(_manual_image_contexts))
+        if _manual_image_context_text and _manual_image_context_text not in _combined_image_context:
+            _combined_image_context = (
+                _combined_image_context
+                + ("\n\n" if _combined_image_context else "")
+                + "【使用者提供的現場描述】\n"
+                + _manual_image_context_text
+            )
 
         full_prompt = build_prompt_from_agents(
             selected_agent_ids=selected_agent_ids,
@@ -885,22 +901,9 @@ if generate_btn:
         with st.spinner("正在分析中，請稍候..."):
             try:
                 if not api_key:
-                    # 無 API Key — 顯示診斷資訊
-                    _secrets_keys = []
-                    try:
-                        _secrets_keys = list(st.secrets.keys())
-                    except Exception:
-                        _secrets_keys = ["(無法讀取 secrets)"]
-                    st.error(
-                        f"❌ 未能取得 API Key。\n\n"
-                        f"**診斷資訊：**\n"
-                        f"- provider 偵測：`{provider}`\n"
-                        f"- st.secrets 可用 keys：`{_secrets_keys}`\n"
-                        f"- DEEPSEEK_API_KEY 環境變數：`{bool(os.environ.get('DEEPSEEK_API_KEY'))}`\n"
-                        f"- ANTHROPIC_API_KEY 環境變數：`{bool(os.environ.get('ANTHROPIC_API_KEY'))}`\n\n"
-                        f"請在 Streamlit Cloud → Settings → Secrets 加入：\n"
-                        f"```\nDEEPSEEK_API_KEY = \"sk-...\"\n```"
-                    )
+                    st.error("AI 分析服務尚未設定，請聯絡系統管理員。")
+                    with st.expander("技術狀態", expanded=False):
+                        st.caption(f"文字回答供應商：{provider or '未設定'}")
                     st.stop()
 
                 elif provider == "deepseek":
@@ -936,25 +939,38 @@ if generate_btn:
                 # independent visual evidence, OCR, or explicit user context.
                 _primary_image_analysis = _image_analyses[0] if _image_analyses else {}
                 _image_manual_review_only = False
-                if _primary_image_analysis:
-                    _visual_evidence = _primary_image_analysis.get("evidence_items") or []
+                _visual_evidence = (
+                    _primary_image_analysis.get("evidence_items") or []
+                    if _primary_image_analysis else []
+                )
+                if _has_image_input:
                     _evidence_context = (
                         _primary_image_analysis.get("raw_metadata", {}).get("evidence_context", {})
-                        if isinstance(_primary_image_analysis.get("raw_metadata"), dict)
+                        if _primary_image_analysis
+                        and isinstance(_primary_image_analysis.get("raw_metadata"), dict)
                         else {}
+                    )
+                    _user_description = (
+                        str(_evidence_context.get("user_description") or "").strip()
+                        or _manual_image_context_text
                     )
                     _image_manual_review_only = bool(
                         not _evidence_context.get("has_visual_analysis")
                         and not _evidence_context.get("has_ocr_text")
-                        and not str(_evidence_context.get("user_description") or "").strip()
+                        and not _user_description
                         and not _evidence_context.get("evidenced_terms")
                     )
                     analysis_result, _agent_unsupported = sanitize_generated_analysis(
                         analysis_result,
                         _visual_evidence,
-                        " ".join([question or "", file_description or "", file_content or ""]),
+                        " ".join([
+                            question or "",
+                            file_description or "",
+                            file_content or "",
+                            _user_description,
+                        ]),
                     )
-                    if _agent_unsupported:
+                    if _agent_unsupported and _primary_image_analysis:
                         _primary_image_analysis["unsupported_assumptions"] = list(dict.fromkeys(
                             list(_primary_image_analysis.get("unsupported_assumptions") or [])
                             + _agent_unsupported
@@ -1330,6 +1346,10 @@ if generate_btn:
                 _agent_scores = calibration_result.get("agent_scores", {})
                 _detected_issues = calibration_result.get("detected_issues", [])
                 _overall_score = calibration_result.get("overall_risk_score", 0)
+                if _image_manual_review_only:
+                    _agent_scores = {}
+                    _detected_issues = []
+                    _overall_score = None
 
                 _risk_color = {
                     "低風險": "#28a745",
@@ -1368,12 +1388,20 @@ if generate_btn:
                         unsafe_allow_html=True,
                     )
 
+                _overall_summary = (
+                    "<strong>未有足夠證據評分</strong><br/>"
+                    "請補充工序描述或啟用 AI 視覺，再由現場負責人覆核。"
+                    if _image_manual_review_only
+                    else (
+                        "整體風險："
+                        f'<span style="color:{_risk_color};font-weight:700;font-size:1.1rem;">{risk_level}</span>'
+                        f'&nbsp;（加權分數：{_overall_score:.1f}）'
+                    )
+                )
                 st.markdown(f"""
   </div>
   <div style="font-size:1rem;">
-    整體風險：
-    <span style="color:{_risk_color};font-weight:700;font-size:1.1rem;">{risk_level}</span>
-    &nbsp;（加權分數：{_overall_score:.1f}）
+    {_overall_summary}
   </div>
 """, unsafe_allow_html=True)
 
@@ -1562,10 +1590,14 @@ if generate_btn:
                         )
 
             except ImportError as e:
-                st.error(f"❌ 缺少依賴套件：`{e}`\n\n請確認 requirements.txt 包含 `openai` 及 `anthropic`。")
+                st.error("分析功能暫時未能啟動，請稍後再試或聯絡系統管理員。")
+                with st.expander("技術狀態", expanded=False):
+                    st.caption(type(e).__name__)
                 st.stop()
             except Exception as e:
-                st.error(f"❌ 分析錯誤：`{type(e).__name__}: {e}`")
+                st.error("分析暫時未能完成，請稍後再試或補充資料。")
+                with st.expander("技術狀態", expanded=False):
+                    st.caption(type(e).__name__)
                 st.stop()
 
         st.success("✅ 分析完成！請前往「分析報告」查看結果。")
@@ -1574,8 +1606,4 @@ if generate_btn:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="text-align:center; color:#999; padding:1.5rem 0 0.5rem 0; font-size:0.82rem;">
-    Buildway Tech (HK) Limited | HK-AICOS Phase 2.0
-</div>
-""", unsafe_allow_html=True)
+render_product_footer()

@@ -20,6 +20,7 @@ from utils.site_record_store import (
 )
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
+from utils.ui_components import compact_link_row, page_header, render_product_footer
 
 
 st.set_page_config(page_title="地盤記錄", page_icon="🗂️", layout="wide")
@@ -29,13 +30,13 @@ with st.sidebar:
     st.markdown("---")
     render_navigation_links()
 
-st.title("地盤記錄")
-st.caption(f"本機 JSONL 儲存位置：{DEFAULT_RECORD_PATH.relative_to(APP_ROOT)}")
-quick_upload, quick_ask = st.columns(2)
-with quick_upload:
-    st.page_link("pages/1_Upload.py", label="📤 上載相片／文件", use_container_width=True)
-with quick_ask:
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
+page_header("地盤記錄", "搜尋、覆核及更新地盤跟進記錄。", "🗂️")
+compact_link_row([
+    ("pages/1_Upload.py", "📤 上載相片／文件"),
+    ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
+])
+with st.expander("技術狀態", expanded=False):
+    st.caption(f"本機記錄位置：{DEFAULT_RECORD_PATH.relative_to(APP_ROOT)}")
 if st.session_state.get("record_update_message"):
     st.success(st.session_state.pop("record_update_message"))
 
@@ -128,3 +129,5 @@ else:
         )
         st.session_state["record_update_message"] = f"已更新記錄：{updated.record_id}"
         st.rerun()
+
+render_product_footer()

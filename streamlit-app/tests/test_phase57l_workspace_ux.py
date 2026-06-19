@@ -25,9 +25,9 @@ def test_upload_and_ask_remain_in_more_tools_with_direct_routes():
 
 def test_workspace_keeps_all_three_quick_links_and_full_report_link():
     source = (APP_ROOT / "pages" / "0_AICOS_Workspace.py").read_text(encoding="utf-8")
-    assert 'st.page_link("pages/1_Upload.py", label="📤 上載分析"' in source
-    assert 'st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS"' in source
-    assert 'st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄"' in source
+    assert '("pages/1_Upload.py", "📤 上載分析")' in source
+    assert '("pages/10_Ask_AICOS.py", "💬 問 AICOS")' in source
+    assert '("pages/11_Records.py", "🗂️ 地盤記錄")' in source
     assert 'st.page_link("pages/2_Report.py", label="查看完整分析報告"' in source
 
 

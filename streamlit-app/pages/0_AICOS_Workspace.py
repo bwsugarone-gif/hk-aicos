@@ -21,6 +21,7 @@ except ImportError:
     pass
 
 from utils.analysis_models import KnowledgeSnippet
+from utils.answer_formatter import format_answer_display
 from utils.answer_modes import ANSWER_MODE_LABELS, DEFAULT_ANSWER_MODE
 from utils.knowledge_search import search_local_knowledge
 from utils.knowledge_tracker import build_knowledge_context, list_source_items
@@ -33,6 +34,7 @@ from utils.site_memory import build_memory_context, list_memory_items, save_memo
 from utils.site_record_store import SiteRecordStore
 from utils.web_search_adapter import web_search
 from utils.workspace_preview import build_recent_analysis_preview
+from utils.ui_components import compact_link_row, page_header, render_answer_card, render_product_footer
 
 
 st.set_page_config(page_title="AICOS 工作台", page_icon="🏗️", layout="wide")
@@ -77,16 +79,12 @@ with st.sidebar:
     st.markdown("---")
     render_navigation_links()
 
-st.title("🏗️ AICOS 工作台")
-st.caption("上載地盤相片或文件，向 AICOS 提問，並集中查看工程記憶、知識來源與跟進記錄。")
-
-quick_upload, quick_ask, quick_records = st.columns(3)
-with quick_upload:
-    st.page_link("pages/1_Upload.py", label="📤 上載分析", use_container_width=True)
-with quick_ask:
-    st.page_link("pages/10_Ask_AICOS.py", label="💬 問 AICOS", use_container_width=True)
-with quick_records:
-    st.page_link("pages/11_Records.py", label="🗂️ 地盤記錄", use_container_width=True)
+page_header("AICOS 工作台", "上載地盤相片或文件、向 AICOS 提問，並集中查看工程記憶與跟進。", "🏗️")
+compact_link_row((
+    ("pages/1_Upload.py", "📤 上載分析"),
+    ("pages/10_Ask_AICOS.py", "💬 問 AICOS"),
+    ("pages/11_Records.py", "🗂️ 地盤記錄"),
+))
 
 st.divider()
 upload_col, ask_col = st.columns(2, gap="large")
@@ -181,7 +179,9 @@ with ask_col:
                     answer_mode=answer_mode,
                 )
             if recovered_from_error:
-                st.warning("AICOS 暫時未能使用部分搜尋內容，已改用安全的本機後備答案。")
+                st.session_state["workspace_answer_recovered"] = True
+            else:
+                st.session_state["workspace_answer_recovered"] = False
             response_data = response.to_dict()
             st.session_state["workspace_quick_result"] = response_data
             st.session_state["ask_result"] = {
@@ -215,14 +215,31 @@ with ask_col:
     quick_result = st.session_state.get("workspace_quick_result")
     if isinstance(quick_result, dict):
         st.markdown("#### AICOS 簡短預覽")
-        st.markdown(str(quick_result.get("answer") or "")[:1600])
-        st.caption(
-            f"風險：{str(quick_result.get('risk_level') or 'unknown').upper()} · "
-            f"來源：{len(quick_result.get('sources') or [])} · "
-            f"回答模式：{ANSWER_MODE_LABELS.get(answer_mode, ANSWER_MODE_LABELS[DEFAULT_ANSWER_MODE])}"
+        quick_sources = [item for item in quick_result.get("sources", []) if isinstance(item, dict)]
+        official_titles = [
+            str(item.get("source_title") or "").strip()
+            for item in quick_sources
+            if item.get("trust_level") == "official_hk" and item.get("source_title")
+        ]
+        quick_warnings = (
+            ["部分搜尋內容暫時不可用，已改用安全的本機備用答案。"]
+            if st.session_state.get("workspace_answer_recovered") else []
         )
-        if st.session_state.get("workspace_saved_memory_id"):
-            st.success(f"已儲存問答記憶：{st.session_state['workspace_saved_memory_id']}")
+        display = format_answer_display(
+            quick_result.get("answer", ""),
+            answer_mode=answer_mode,
+            risk_level=quick_result.get("risk_level", "unknown"),
+            confidence=quick_result.get("confidence", 0.0),
+            source_summary=official_titles,
+            warnings=quick_warnings,
+            source_available=bool(official_titles),
+            memory_save_status=(
+                f"已儲存問答記憶：{st.session_state['workspace_saved_memory_id']}"
+                if st.session_state.get("workspace_saved_memory_id") else ""
+            ),
+            fallback_used=bool(quick_result.get("fallback_used")),
+        )
+        render_answer_card(display, compact=True)
         st.page_link("pages/10_Ask_AICOS.py", label="查看完整答案及來源", use_container_width=True)
 
 st.divider()
@@ -277,3 +294,4 @@ with followup_tab:
         st.write(item.summary[:300])
 
 st.caption("AICOS Knowledge Foundation · 本階段使用本機 JSONL metadata；Google Drive、Supabase 及向量索引只保留未來 adapter 接口。")
+render_product_footer()

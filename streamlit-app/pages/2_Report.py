@@ -1,6 +1,6 @@
 """
 pages/2_Report.py
-HK-AICOS Phase 2.0 - 分析報告頁（客戶版）
+HK-AICOS Phase 5.7 - 分析報告頁（客戶版）
 
 Buildway Tech (HK) Limited
 """
@@ -23,6 +23,7 @@ from utils.lang import REPORT, NAV, BRAND, AGENTS, AGENT_ORDER
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
 from utils.project_manager import load_project
+from utils.ui_components import page_header, render_product_footer
 
 st.set_page_config(
     page_title="分析報告 | HK-AICOS",
@@ -168,12 +169,7 @@ with st.sidebar:
     st.markdown('<div style="font-size:0.78rem; color:#aac4e0;">🔒 所有資料安全處理</div>', unsafe_allow_html=True)
 
 # ── Page Header ───────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="page-header">
-    <h2>📄 分析報告</h2>
-    <p>查看 AI 工程分析結果及下載 PDF 報告。</p>
-</div>
-""", unsafe_allow_html=True)
+page_header("分析報告", "查看 AI 工程分析結果及下載 PDF 報告。", "📄")
 
 # ── 無分析結果 ────────────────────────────────────────────────────────────────
 if "last_analysis" not in st.session_state:
@@ -181,6 +177,7 @@ if "last_analysis" not in st.session_state:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.page_link("pages/1_Upload.py", label="📤 前往上載分析")
+    render_product_footer()
     st.stop()
 
 # ── 顯示分析結果 ──────────────────────────────────────────────────────────────
@@ -1045,8 +1042,4 @@ with col2:
     st.page_link("pages/1_Upload.py", label="📤 重新上載分析")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="text-align:center; color:#999; padding:1.5rem 0 0.5rem 0; font-size:0.82rem;">
-    Buildway Tech (HK) Limited | HK-AICOS Phase 2.0
-</div>
-""", unsafe_allow_html=True)
+render_product_footer()
