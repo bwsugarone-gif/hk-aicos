@@ -6,6 +6,7 @@ import streamlit as st
 
 
 LANGUAGE_OPTIONS = ("繁體中文", "English")
+DEFAULT_LANGUAGE = LANGUAGE_OPTIONS[0]
 LANGUAGE_KEY = "aicos_navigation_language"
 LANGUAGE_WIDGET_KEY = "_aicos_navigation_language_widget"
 
@@ -131,18 +132,45 @@ def navigation_labels(language: str) -> dict[str, str]:
     return dict(_LABELS["en" if language == "English" else "zh"])
 
 
+def _resolve_language(state) -> str:
+    """Safely initialise, validate and persist the navigation language.
+
+    Operates on a session-state mapping so it works even on a direct route load
+    where neither the stored key nor the widget key exists yet (the Streamlit
+    Cloud crash this guards against). Always returns a supported language and
+    keeps Traditional Chinese as the default. Must run *before* the language
+    widget is instantiated, since it writes the widget key.
+    """
+    if LANGUAGE_KEY not in state:
+        state[LANGUAGE_KEY] = DEFAULT_LANGUAGE
+    if LANGUAGE_WIDGET_KEY not in state:
+        state[LANGUAGE_WIDGET_KEY] = state.get(LANGUAGE_KEY, DEFAULT_LANGUAGE)
+    selected = state.get(LANGUAGE_WIDGET_KEY, state.get(LANGUAGE_KEY, DEFAULT_LANGUAGE))
+    if selected not in LANGUAGE_OPTIONS:
+        selected = DEFAULT_LANGUAGE
+    state[LANGUAGE_KEY] = selected
+    state[LANGUAGE_WIDGET_KEY] = selected
+    return selected
+
+
 def _store_language_choice() -> None:
-    st.session_state[LANGUAGE_KEY] = st.session_state[LANGUAGE_WIDGET_KEY]
+    """on_change callback: mirror the widget choice into the persistent key.
+
+    Reads defensively (``.get``) so a missing widget key never raises, and only
+    writes the non-widget key -- writing the widget key inside its own callback
+    is not allowed by Streamlit.
+    """
+    selected = st.session_state.get(LANGUAGE_WIDGET_KEY, st.session_state.get(LANGUAGE_KEY, DEFAULT_LANGUAGE))
+    if selected not in LANGUAGE_OPTIONS:
+        selected = DEFAULT_LANGUAGE
+    st.session_state[LANGUAGE_KEY] = selected
 
 
 def render_navigation_links() -> str:
     """Render one consistent sidebar navigation and return its language."""
     st.markdown(SIDEBAR_STYLE_CSS, unsafe_allow_html=True)
-    saved_language = st.session_state.get(LANGUAGE_KEY, LANGUAGE_OPTIONS[0])
-    if saved_language not in LANGUAGE_OPTIONS:
-        saved_language = LANGUAGE_OPTIONS[0]
-    st.session_state[LANGUAGE_WIDGET_KEY] = saved_language
-    language = st.selectbox(
+    language = _resolve_language(st.session_state)
+    st.selectbox(
         "語言 / Language",
         LANGUAGE_OPTIONS,
         key=LANGUAGE_WIDGET_KEY,
