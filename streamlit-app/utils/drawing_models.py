@@ -156,7 +156,12 @@ def _as_payload(value: Any) -> dict:
 
 @dataclass
 class CadBimHandoffItem:
-    """One practical action handed to the CAD or BIM team."""
+    """One practical, task-oriented action handed to the CAD or BIM team.
+
+    Phase 5.11 enriches each item so it reads like a real work order: besides the
+    title/description it carries the concrete ``required_output``, the
+    ``evidence`` (why the task exists) and ``verify_by`` (who should sign it off).
+    """
 
     item_id: str
     action_type: str
@@ -169,6 +174,9 @@ class CadBimHandoffItem:
     discipline: str | None = None
     references: list[str] = field(default_factory=list)
     status: str = "open"
+    required_output: str = ""
+    evidence: str = ""
+    verify_by: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -191,6 +199,9 @@ class CadBimHandoffItem:
             if payload.get("discipline") else None,
             references=_strings(payload.get("references"), 200),
             status=_choice(payload.get("status"), HANDOFF_STATUSES, "open"),
+            required_output=_clean(payload.get("required_output"), 600),
+            evidence=_clean(payload.get("evidence") or payload.get("reason"), 600),
+            verify_by=_clean(payload.get("verify_by") or payload.get("verifier"), 200),
         )
 
 
@@ -211,6 +222,7 @@ class DrawingPageAnalysis:
     scale: str | None = None
     drawing_date: str | None = None
     project_number: str | None = None
+    level_hint: str | None = None
     classification_confidence: float = 0.0
     classification_basis: list[str] = field(default_factory=list)
     title_block_fields: dict[str, Any] = field(default_factory=dict)
@@ -243,6 +255,7 @@ class DrawingPageAnalysis:
             scale=_optional(payload.get("scale"), 80),
             drawing_date=_optional(payload.get("drawing_date"), 60),
             project_number=_optional(payload.get("project_number"), 120),
+            level_hint=_optional(payload.get("level_hint"), 80),
             classification_confidence=_confidence(payload.get("classification_confidence")),
             classification_basis=_strings(payload.get("classification_basis"), 200),
             title_block_fields=dict(title_block) if isinstance(title_block, dict) else {},

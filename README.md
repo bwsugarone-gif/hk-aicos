@@ -6,8 +6,8 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 
 ## 目前狀態（Current Status）
 
-- 當前 dev 基線：**Phase 5.10 — Drawing Analysis + CAD/BIM Handoff Core**
-- 最新 dev 提交（Latest dev commit）：`95fcaed2e51af52c8d0d5627068ab06d86bee30c`
+- 當前 dev 基線：**Phase 5.11 — Drawing Analysis Live Hardening**（建基於 Phase 5.10）
+- Phase 5.10 基線提交（baseline commit）：`95fcaed2e51af52c8d0d5627068ab06d86bee30c`
 - `main` 分支可能落後於 `dev`，直至 Cloud smoke test 通過後才合併。
 - 主要應用程式入口（Primary app entry）：`streamlit-app/app.py`
 - 建議 Python 版本（Recommended Python）：**3.11.9**
@@ -34,6 +34,7 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 - **Phase 5.8**：Project Memory、Knowledge Pack、Follow-up Tracker、Records management。
 - **Phase 5.9**：Provider health、Gemini Vision、RAG foundation、intent router、熱工序／高空工作答案路由（hot-work / high-work answer routing）。
 - **Phase 5.10**：圖則／PDF 分析、標題欄擷取（title block extraction）、圖則分類（drawing classification）、問題擷取（issue extraction）、CAD／BIM 交接項目（handoff items）、Drawing Analysis 頁面、Ask AICOS 圖則內容情境（drawing context）。
+- **Phase 5.11**：圖紙分析實戰強化（Drawing Analysis Live Hardening）——更可靠的真實 PDF／圖片圖紙處理及安全頁數上限、更準確的標題欄擷取（EN／中文標籤、Drg/Dwg/Job No.、樓層）、更佳的圖紙頁面分類、更貼近實務的 CAD/BIM 交接用詞（負責團隊／所需成果／覆核人）、Records 圖紙與交接搜尋及狀態更新、Ask AICOS 圖紙查詢情境（未有分析時提示先上載圖紙）。
 
 ## 核心能力（Core Capabilities）
 

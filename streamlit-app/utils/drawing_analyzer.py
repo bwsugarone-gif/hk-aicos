@@ -168,6 +168,7 @@ def analyze_drawing(
             scale=fields.get("scale"),
             drawing_date=fields.get("drawing_date"),
             project_number=fields.get("project_number"),
+            level_hint=fields.get("level_hint"),
             classification_confidence=classification["confidence"],
             classification_basis=classification["basis"],
             title_block_fields=fields,
@@ -212,7 +213,12 @@ def analyze_drawing(
         ingestion_status=str(ingest.get("ingestion_status") or "unknown"),
         vision_used=vision_used,
         technical_notes=list(dict.fromkeys(technical_notes)),
-        metadata={"file_type": ingest.get("file_type"), "depth": depth},
+        metadata={
+            "file_type": ingest.get("file_type"),
+            "depth": depth,
+            "pages_without_text": int(ingest.get("pages_without_text") or 0),
+            "pdf_metadata": ingest.get("metadata") or {},
+        },
     )
 
     if persist:

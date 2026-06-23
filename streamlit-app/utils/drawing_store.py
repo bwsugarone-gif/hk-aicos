@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .drawing_models import DrawingDocument, DrawingPageAnalysis
+from .drawing_models import HANDOFF_STATUSES, DrawingDocument, DrawingPageAnalysis
 
 
 _DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -169,6 +169,35 @@ def read_pages_for_document(
         if record.document_id == document_id and record.page_id:
             latest[record.page_id] = record
     return sorted(latest.values(), key=lambda item: item.page_number)
+
+
+def update_handoff_item_status(
+    document_id: str,
+    item_id: str,
+    status: str,
+    *,
+    path: str | Path = DEFAULT_DRAWING_DOC_PATH,
+) -> DrawingDocument | None:
+    """Update one handoff item's status and re-persist the document.
+
+    Append-only with latest-wins by ``document_id``: the rewritten record simply
+    becomes the newest version. Returns the updated document, or ``None`` when the
+    document is not found. Unknown statuses are ignored (document returned as-is).
+    """
+    document = get_drawing_document(document_id, path=path)
+    if document is None:
+        return None
+    if status not in HANDOFF_STATUSES:
+        return document
+    changed = False
+    for item in document.handoff_items:
+        if item.item_id == item_id and item.status != status:
+            item.status = status
+            changed = True
+            break
+    if not changed:
+        return document
+    return append_drawing_document(document, path=path)
 
 
 def list_recent_handoff_items(

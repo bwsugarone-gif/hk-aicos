@@ -23,12 +23,18 @@ from utils.logo_helper import sidebar_logo
 from utils.memory_models import MEMORY_STATUSES
 from utils.navigation import render_navigation_links
 from utils.project_memory_store import read_all_memory
-from utils.drawing_store import list_recent_drawing_documents, read_pages_for_document
+from utils.drawing_store import (
+    list_recent_drawing_documents,
+    read_pages_for_document,
+    update_handoff_item_status,
+)
 from utils.drawing_models import (
     ACTION_TYPE_LABELS_ZH,
     DISCIPLINE_LABELS_ZH,
+    HANDOFF_STATUSES,
     PAGE_TYPE_LABELS_ZH,
 )
+from utils.drawing_records import filter_drawing_documents, filter_handoff_rows
 from utils.rag_indexer import build_rag_index_from_knowledge_sources, read_rag_index
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
 from utils.runtime_storage_health import get_runtime_storage_status
@@ -335,10 +341,35 @@ with knowledge_tab:
 
 with drawing_tab:
     drawings = list_recent_drawing_documents(limit=100)
-    st.metric("圖紙分析記錄", len(drawings))
-    if not drawings:
-        st.info("尚未有圖紙分析記錄；可於「圖紙分析」頁上載圖紙。")
-    for document in drawings[:100]:
+    pages_by_doc = {document.document_id: read_pages_for_document(document.document_id) for document in drawings}
+    drawing_memories = {}
+    for memory in read_all_memory():
+        if memory.source_type == "drawing_analysis":
+            linked_doc = (memory.metadata or {}).get("document_id")
+            if linked_doc:
+                drawing_memories[linked_doc] = memory
+    all_followups = list_followups(limit=None)
+
+    projects = sorted({document.project_ref for document in drawings if document.project_ref})
+    disc_options = sorted({d for document in drawings for d in document.disciplines if d and d != "unknown"})
+    type_options = sorted({t for document in drawings for t in document.page_types if t and t != "unknown"})
+    dr1, dr2, dr3, dr4, dr5 = st.columns([1, 1, 1, 1, 2])
+    dr_project = dr1.selectbox("項目", [""] + projects, format_func=lambda v: v or "全部", key="draw_project")
+    dr_disc = dr2.selectbox("專業", [""] + disc_options, format_func=lambda v: DISCIPLINE_LABELS_ZH.get(v, v) if v else "全部", key="draw_disc")
+    dr_type = dr3.selectbox("圖紙類型", [""] + type_options, format_func=lambda v: PAGE_TYPE_LABELS_ZH.get(v, v) if v else "全部", key="draw_type")
+    dr_sheet = dr4.text_input("圖號", placeholder="例如 A-101", key="draw_sheet")
+    dr_keyword = dr5.text_input("關鍵字 / 檔名", placeholder="搜尋摘要、問題、檔名", key="draw_keyword")
+
+    filtered_drawings = filter_drawing_documents(
+        drawings, pages_by_doc,
+        project_ref=dr_project, discipline=dr_disc, page_type=dr_type,
+        sheet_number=dr_sheet, keyword=dr_keyword,
+    )
+
+    st.metric("圖紙分析記錄", len(filtered_drawings))
+    if not filtered_drawings:
+        st.info("尚未有符合條件的圖紙分析記錄；可於「圖紙分析」頁上載圖紙。")
+    for document in filtered_drawings[:100]:
         disc = "、".join(DISCIPLINE_LABELS_ZH.get(d, d) for d in document.disciplines) or "未能確定"
         title = document.source_file_name or document.document_id
         with st.expander(f"{(document.created_at or '')[:19].replace('T', ' ')} · {title}"):
@@ -352,38 +383,83 @@ with drawing_tab:
                 st.markdown("**待確認：** " + "；".join(document.drawing_issues[:6]))
             if document.missing_information:
                 st.markdown("**缺資料：** " + "；".join(document.missing_information[:6]))
-            for page in read_pages_for_document(document.document_id):
+            for page in pages_by_doc.get(document.document_id, []):
                 ptype = PAGE_TYPE_LABELS_ZH.get(page.page_type, page.page_type)
                 pdisc = DISCIPLINE_LABELS_ZH.get(page.discipline, page.discipline)
-                st.caption(
-                    f"第 {page.page_number} 頁 · {ptype} · {pdisc} · "
-                    f"圖號 {page.drawing_number or '未標示'} · 比例 {page.scale or '未標示'}"
-                )
+                bits = [
+                    f"第 {page.page_number} 頁", ptype, pdisc,
+                    f"圖號 {page.drawing_number or '未標示'}",
+                    f"比例 {page.scale or '未標示'}",
+                    f"修訂 {page.revision or '未標示'}",
+                ]
+                if page.sheet_title:
+                    bits.append(f"名稱 {page.sheet_title}")
+                if page.level_hint:
+                    bits.append(f"樓層 {page.level_hint}")
+                st.caption(" · ".join(bits))
+            memory = drawing_memories.get(document.document_id)
+            if memory:
+                linked_followups = [f for f in all_followups if f.source_memory_id == memory.memory_id]
+                st.caption(f"相關工程記憶：{memory.memory_id} · 相關跟進：{len(linked_followups)} 項")
 
 
 with handoff_tab:
     team_labels = {"cad": "CAD", "bim": "BIM", "both": "CAD／BIM"}
     priority_labels = {"low": "低", "medium": "中", "high": "高", "urgent": "緊急"}
+    status_labels = {"open": "待處理", "in_progress": "處理中", "done": "已完成", "cancelled": "已取消"}
     drawings = list_recent_drawing_documents(limit=100)
     rows = [(document, item) for document in drawings for item in document.handoff_items]
     st.metric("CAD/BIM 交接事項", len(rows))
     if not rows:
         st.info("尚未有 CAD/BIM 交接事項。")
-    f_team, f_priority = st.columns(2)
-    team_filter = f_team.selectbox("團隊", ["", "cad", "bim", "both"], format_func=lambda v: team_labels.get(v, "全部") if v else "全部", key="handoff_team")
-    priority_filter = f_priority.selectbox("優先度", ["", "urgent", "high", "medium", "low"], format_func=lambda v: priority_labels.get(v, "全部") if v else "全部", key="handoff_priority")
-    for document, item in rows[:300]:
-        if team_filter and item.target_team != team_filter:
-            continue
-        if priority_filter and item.priority != priority_filter:
-            continue
+    disc_options = sorted({item.discipline for _document, item in rows if item.discipline and item.discipline != "unknown"})
+    h1, h2, h3, h4, h5 = st.columns([1, 1, 1, 1, 2])
+    team_filter = h1.selectbox("團隊", ["", "cad", "bim", "both"], format_func=lambda v: team_labels.get(v, "全部") if v else "全部", key="handoff_team")
+    priority_filter = h2.selectbox("優先度", ["", "urgent", "high", "medium", "low"], format_func=lambda v: priority_labels.get(v, "全部") if v else "全部", key="handoff_priority")
+    status_filter = h3.selectbox("狀態", [""] + sorted(HANDOFF_STATUSES), format_func=lambda v: status_labels.get(v, v) if v else "全部", key="handoff_status")
+    disc_filter = h4.selectbox("專業", [""] + disc_options, format_func=lambda v: DISCIPLINE_LABELS_ZH.get(v, v) if v else "全部", key="handoff_disc")
+    handoff_keyword = h5.text_input("關鍵字 / 圖號", placeholder="搜尋標題、成果、圖號", key="handoff_keyword")
+
+    filtered_rows = filter_handoff_rows(
+        rows, team=team_filter, priority=priority_filter, status=status_filter,
+        discipline=disc_filter, keyword=handoff_keyword,
+    )
+    if rows and not filtered_rows:
+        st.info("未找到符合條件的 CAD/BIM 交接事項。")
+    for document, item in filtered_rows[:300]:
         team = team_labels.get(item.target_team, item.target_team)
         action = ACTION_TYPE_LABELS_ZH.get(item.action_type, item.action_type)
         priority = priority_labels.get(item.priority, item.priority)
+        status_label = status_labels.get(item.status, item.status)
         page_hint = f"（第 {item.page_number} 頁）" if item.page_number else ""
-        with st.expander(f"[{team}｜{action}｜優先：{priority}] {item.title}{page_hint}"):
-            st.write(item.description or "")
+        with st.expander(f"[{team}｜{action}｜優先：{priority}｜{status_label}] {item.title}{page_hint}"):
+            ref_bits = []
+            if item.page_number:
+                ref_bits.append(f"第 {item.page_number} 頁")
+            if item.sheet_number:
+                ref_bits.append(f"圖號 {item.sheet_number}")
+            if ref_bits:
+                st.caption("頁 / 圖號：" + " · ".join(ref_bits))
+            st.markdown("**負責團隊：** " + team)
+            if item.description:
+                st.markdown("**需要做：** " + item.description)
+            if item.required_output:
+                st.markdown("**所需成果：** " + item.required_output)
+            if item.evidence:
+                st.markdown("**原因 / 依據：** " + item.evidence)
+            if item.verify_by:
+                st.markdown("**覆核人：** " + item.verify_by)
             st.caption(f"來源圖紙：{document.source_file_name or document.document_id} · 項目：{document.project_ref or '未指定'}")
+            with st.form(f"handoff_status_form_{item.item_id}"):
+                status_index = sorted(HANDOFF_STATUSES).index(item.status) if item.status in HANDOFF_STATUSES else 0
+                new_status = st.selectbox(
+                    "更新狀態", sorted(HANDOFF_STATUSES), index=status_index,
+                    format_func=lambda v: status_labels.get(v, v), key=f"handoff_status_{item.item_id}",
+                )
+                if st.form_submit_button("更新狀態") and new_status != item.status:
+                    update_handoff_item_status(document.document_id, item.item_id, new_status)
+                    st.session_state["records_message"] = "CAD/BIM 交接狀態已更新。"
+                    st.rerun()
 
 
 render_product_footer()

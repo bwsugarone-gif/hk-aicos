@@ -30,6 +30,7 @@ from utils.drawing_models import (
 from utils.file_loader import save_uploaded_file
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
+from utils.provider_health import get_provider_health
 from utils.ui_components import compact_link_row, page_header, render_product_footer
 
 
@@ -85,13 +86,17 @@ with st.container(border=True):
                 key="drawing_discipline",
             )
         with col_b:
-            page_limit = st.number_input("分析頁數上限", min_value=1, max_value=20, value=12, step=1, key="drawing_pages")
+            page_limit = st.number_input(
+                "分析頁數上限", min_value=1, max_value=20, value=12, step=1, key="drawing_pages",
+                help="多頁 PDF 只會分析前面指定頁數；最多 20 頁，避免長時間等候。",
+            )
             depth = st.selectbox(
                 "分析深度",
                 list(DEPTH_LABELS),
                 index=1,
                 format_func=DEPTH_LABELS.get,
                 key="drawing_depth",
+                help="快速模式最多分析 5 頁；標準最多 12 頁；詳細最多 20 頁。",
             )
         description = st.text_area("圖紙說明（選填）", placeholder="例如：地下層建築平面圖一套", key="drawing_desc", height=80)
         submitted = st.form_submit_button("開始分析", type="primary", use_container_width=True)
@@ -130,20 +135,28 @@ if result and result.get("error"):
 elif result:
     document = result["document"]
     pages = result["pages"]
+    meta_info = document.get("metadata") or {}
+    vision_configured = bool(get_provider_health().vision_available)
 
     st.divider()
     st.markdown("### 文件概覽")
+    analyzed = int(document.get("analyzed_page_count", 0) or 0)
+    total_pages = int(document.get("page_count", 0) or 0) or analyzed
+    read_label = "已讀取 PDF" if meta_info.get("file_type") == "pdf" else "已讀取圖紙"
+    st.info(f"{read_label} · 已分析 {analyzed} / {total_pages} 頁")
     overview = st.columns(4)
-    overview[0].metric("分析頁數", document.get("analyzed_page_count", 0))
-    overview[1].metric("總頁數", document.get("page_count", 0))
+    overview[0].metric("分析頁數", analyzed)
+    overview[1].metric("總頁數", total_pages)
     overview[2].metric("CAD/BIM 交接", len(document.get("handoff_items", [])))
     overview[3].metric("待確認問題", len(document.get("drawing_issues", [])))
     disc = "、".join(DISCIPLINE_LABELS_ZH.get(d, d) for d in document.get("disciplines", [])) or "未能確定"
     types = "、".join(PAGE_TYPE_LABELS_ZH.get(t, t) for t in document.get("page_types", []) if t != "unknown") or "未能分類"
     st.write(document.get("summary", ""))
     st.caption(f"涵蓋專業：{disc} · 圖紙類型：{types} · 讀取方式：{INGEST_LABELS.get(document.get('ingestion_status'), '未知')}")
-    if result.get("memory_id"):
-        st.success(f"已儲存為工程記憶，並建立 {result.get('followups', 0)} 項跟進事項。")
+    if int(meta_info.get("pages_without_text") or 0):
+        st.warning("部分頁面未能抽取文字，已按圖像 / metadata / 人工覆核模式處理。")
+    if not vision_configured:
+        st.caption("AI 視覺未設定，已使用文字 / metadata / 人工覆核模式。")
 
     st.markdown("### 圖紙頁面摘要")
     if not pages:
@@ -152,20 +165,32 @@ elif result:
         ptype = PAGE_TYPE_LABELS_ZH.get(page.get("page_type"), page.get("page_type"))
         pdisc = DISCIPLINE_LABELS_ZH.get(page.get("discipline"), page.get("discipline"))
         header = f"第 {page.get('page_number')} 頁 · {ptype} · {pdisc}"
+        confidence = float(page.get("classification_confidence") or 0)
         with st.expander(header):
             meta = st.columns(4)
             meta[0].markdown(f"**圖紙編號**  \n{page.get('drawing_number') or '未標示'}")
             meta[1].markdown(f"**比例**  \n{page.get('scale') or '未標示'}")
             meta[2].markdown(f"**修訂**  \n{page.get('revision') or '未標示'}")
-            meta[3].markdown(f"**判斷信心**  \n{int(round(float(page.get('classification_confidence') or 0) * 100))}%")
+            meta[3].markdown(f"**判斷信心**  \n{int(round(confidence * 100))}%")
             if page.get("sheet_title"):
                 st.caption("圖紙名稱：" + page["sheet_title"])
+            if page.get("level_hint"):
+                st.caption("樓層：" + page["level_hint"])
+            has_title_block = any(page.get(key) for key in ("drawing_number", "scale", "revision", "sheet_title"))
+            if not has_title_block:
+                st.caption("標題欄未能可靠抽取，請 CAD/BIM team 核對原圖。")
+            if confidence < 0.3:
+                st.caption("此頁判斷信心偏低，請人工覆核分類及內容。")
             if page.get("drawing_issues"):
                 st.markdown("**待確認：** " + "；".join(page["drawing_issues"]))
             if page.get("missing_information"):
                 st.markdown("**缺資料：** " + "；".join(page["missing_information"]))
             if page.get("coordination_flags"):
                 st.markdown("**協調提示：** " + "；".join(page["coordination_flags"]))
+            excerpt = str(page.get("extracted_text_excerpt") or "").strip()
+            if excerpt:
+                with st.expander("原始文字摘錄", expanded=False):
+                    st.text(excerpt[:1200])
 
     st.markdown("### 問題與待確認")
     issues = document.get("drawing_issues", [])
@@ -194,17 +219,53 @@ elif result:
         team = TEAM_LABELS.get(item.get("target_team"), item.get("target_team"))
         action = ACTION_TYPE_LABELS_ZH.get(item.get("action_type"), item.get("action_type"))
         priority = PRIORITY_LABELS.get(item.get("priority"), item.get("priority"))
+        sheet_ref = item.get("sheet_number")
         page_hint = f"（第 {item.get('page_number')} 頁）" if item.get("page_number") else ""
         with st.expander(f"[{team}｜{action}｜優先：{priority}] {item.get('title')}{page_hint}"):
-            st.write(item.get("description") or "")
+            ref_bits = []
+            if item.get("page_number"):
+                ref_bits.append(f"第 {item.get('page_number')} 頁")
+            if sheet_ref:
+                ref_bits.append(f"圖號 {sheet_ref}")
+            if ref_bits:
+                st.caption("頁 / 圖號：" + " · ".join(ref_bits))
+            st.markdown("**負責團隊：** " + team)
+            if item.get("description"):
+                st.markdown("**需要做：** " + item["description"])
+            if item.get("required_output"):
+                st.markdown("**所需成果：** " + item["required_output"])
+            if item.get("evidence"):
+                st.markdown("**原因 / 依據：** " + item["evidence"])
+            if item.get("verify_by"):
+                st.markdown("**覆核人：** " + item["verify_by"])
+            st.caption("狀態：" + {"open": "待處理", "in_progress": "處理中", "done": "已完成", "cancelled": "已取消"}.get(item.get("status"), item.get("status") or "待處理"))
             if item.get("references"):
                 st.caption("參考：" + "、".join(item["references"]))
 
+    st.markdown("### 儲存 / 建立跟進")
+    if result.get("memory_id"):
+        st.success(
+            f"已自動儲存為工程記憶，並建立 {result.get('followups', 0)} 項跟進事項；"
+            "可於「記錄」頁的「圖紙分析」及「CAD/BIM 交接」查閱。"
+        )
+    else:
+        st.caption("分析結果已保留於圖紙記錄，可於「記錄」頁查閱。")
+    compact_link_row((
+        ("pages/11_Records.py", "🗂️ 前往記錄"),
+        ("pages/10_Ask_AICOS.py", "💬 就此圖紙提問"),
+    ))
+
     st.markdown("### 分析依據")
+    if document.get("vision_used"):
+        vision_line = "AI 視覺輔助：已使用"
+    elif vision_configured:
+        vision_line = "AI 視覺輔助：未使用（以文字及標題欄判斷）"
+    else:
+        vision_line = "AI 視覺輔助：未設定（以文字 / metadata / 人工覆核模式）"
     basis_lines = [
         f"圖紙讀取方式：{INGEST_LABELS.get(document.get('ingestion_status'), '未知')}",
         f"分析深度：{DEPTH_LABELS.get(document.get('analysis_depth'), document.get('analysis_depth'))}",
-        "AI 視覺輔助：" + ("已使用" if document.get("vision_used") else "未使用（以文字及標題欄判斷）"),
+        vision_line,
         f"已分析 {document.get('analyzed_page_count', 0)} 頁，產生 {len(handoff)} 項交接事項。",
     ]
     for line in basis_lines:

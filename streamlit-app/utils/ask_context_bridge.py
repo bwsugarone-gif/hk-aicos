@@ -7,7 +7,11 @@ from typing import Any
 
 from .analysis_models import KnowledgeSnippet, SearchResult
 from .ask_intent_router import AskIntent, classify_ask_intent
-from .drawing_context import build_drawing_context
+from .drawing_context import (
+    build_drawing_context,
+    build_no_drawing_guidance,
+    recent_drawing_summary,
+)
 from .followup_store import build_followup_context, list_followups
 from .knowledge_retriever import build_knowledge_pack_context
 from .knowledge_search import search_local_knowledge
@@ -54,6 +58,7 @@ def build_ask_context_selection(
     followups: list[Any] = []
     recent: list[Any] = []
     drawing: list[Any] = []
+    drawing_summary: dict[str, Any] | None = None
     visual_evidence_count = 0
 
     if allow_local and intent.intent_type in {
@@ -110,6 +115,10 @@ def build_ask_context_selection(
 
     elif allow_records and intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
         drawing.extend(build_drawing_context(question, project_ref, intent_type=intent.intent_type, limit=limit))
+        drawing_summary = recent_drawing_summary(project_ref, limit=limit)
+        if not drawing_summary["found"]:
+            # No drawing analysis yet -> steer the answer to ask the user to upload.
+            drawing.append(build_no_drawing_guidance())
         followups.extend(build_followup_context(question, project_ref, limit=min(3, limit)))
         memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
 
@@ -145,6 +154,9 @@ def build_ask_context_selection(
         "official": sum(1 for item in contexts if getattr(item, "trust_level", "") == "official_hk"),
         "visual_evidence": visual_evidence_count if recent_referenced else 0,
         "recent_image": 1 if recent_referenced else 0,
+        "drawing_found": 1 if (drawing_summary and drawing_summary.get("found")) else 0,
+        "drawing_handoff": int(drawing_summary.get("handoff_count", 0)) if drawing_summary else 0,
+        "drawing_pages": int(drawing_summary.get("page_count", 0)) if drawing_summary else 0,
     }
     return AskContextSelection(
         intent=intent,
@@ -158,6 +170,13 @@ def build_ask_context_selection(
 
 
 def _context_basis(intent: AskIntent, counts: dict[str, int], recent_referenced: bool) -> list[str]:
+    if intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
+        return [
+            "問題類型：圖紙 / CAD-BIM 查詢",
+            "最近圖紙分析：" + ("已引用" if counts.get("drawing_found") else "未找到"),
+            f"CAD/BIM 交接事項：{counts.get('drawing_handoff', 0)} 項",
+            f"圖紙頁面：{counts.get('drawing_pages', 0)} 頁",
+        ]
     lines = [f"問題類型：{intent.label}"]
     if intent.intent_type == "safety_definition_question":
         lines.append("最近相片分析：未引用，因問題不是相片跟進")

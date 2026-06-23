@@ -22,7 +22,7 @@ _IMAGE_TERMS = ("這張相", "呢張相", "張相", "相片", "圖片", "剛才�
 _RECENT_UPLOAD_TERMS = ("剛才上載", "頭先上載", "剛才分析", "頭先分析")
 _RECENT_TERMS = ("剛才", "頭先", "這張", "呢張", "上載")
 _IMAGE_EVIDENCE_TERMS = ("磨機", "火花", "切割", "相", "圖片")
-_CAD_BIM_TERMS = ("cad", "bim", "交接", "繪圖", "建模", "cad team", "bim team", "draft team")
+_CAD_BIM_TERMS = ("cad", "bim", "交接", "繪圖", "建模", "cad team", "bim team", "draft team", "rfi")
 _DRAWING_TERMS = (
     "圖紙", "圖則", "呢份圖", "這份圖", "哩份圖", "張圖", "幅圖", "圖面", "圖樣",
     "drawing", "sheet", "缺資料", "缺圖", "site verify", "現場核實", "走位",

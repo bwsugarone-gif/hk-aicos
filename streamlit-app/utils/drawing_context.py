@@ -51,7 +51,8 @@ def _handoff_snippet(document, score: float) -> KnowledgeSnippet:
         label = ACTION_TYPE_LABELS_ZH.get(item.action_type, item.action_type)
         team = {"cad": "CAD", "bim": "BIM", "both": "CAD/BIM"}.get(item.target_team, item.target_team)
         page = f"P{item.page_number} " if item.page_number else ""
-        lines.append(f"[{team}｜{label}] {page}{item.title}")
+        detail = f"（需交付：{item.required_output}）" if getattr(item, "required_output", "") else ""
+        lines.append(f"[{team}｜{label}] {page}{item.title}{detail}")
     snippet = "；".join(lines) or "暫無 CAD/BIM 交接事項。"
     return KnowledgeSnippet(
         title=f"CAD/BIM 交接清單：{document.source_file_name or document.document_id}",
@@ -60,6 +61,37 @@ def _handoff_snippet(document, score: float) -> KnowledgeSnippet:
         score=score,
         source_type="cad_bim_handoff",
         source_id=f"drawing-handoff:{document.document_id}",
+        trust_level="uploaded_record",
+        provider="drawing_store",
+    )
+
+
+NO_DRAWING_GUIDANCE = (
+    "未找到任何圖紙分析記錄。請先到「圖紙分析」頁上載 PDF 或圖片圖紙並完成分析，"
+    "之後再提問圖紙問題、CAD/BIM 交接或需要 site verify 的頁面。"
+)
+
+
+def recent_drawing_summary(project_ref: str | None = None, *, limit: int = 5) -> dict[str, int | bool]:
+    """Lightweight summary of recent drawing analyses for Ask context basis."""
+    documents = list_recent_drawing_documents(project_ref, limit=max(1, limit))
+    return {
+        "found": bool(documents),
+        "document_count": len(documents),
+        "handoff_count": sum(len(doc.handoff_items) for doc in documents),
+        "page_count": sum(int(doc.analyzed_page_count or 0) for doc in documents),
+    }
+
+
+def build_no_drawing_guidance(score: float = 9.0) -> KnowledgeSnippet:
+    """Guidance snippet used when a drawing question has no analysis to draw on."""
+    return KnowledgeSnippet(
+        title="尚未有圖紙分析記錄",
+        path="AICOS Drawing / none",
+        snippet=NO_DRAWING_GUIDANCE,
+        score=score,
+        source_type="drawing_guidance",
+        source_id="drawing:none",
         trust_level="uploaded_record",
         provider="drawing_store",
     )

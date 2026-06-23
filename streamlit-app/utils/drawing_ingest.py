@@ -1,10 +1,14 @@
-"""PDF / image drawing ingestion for Phase 5.10B.
+"""PDF / image drawing ingestion for Phase 5.10B + 5.11A.
 
 Turns an uploaded drawing file into a list of analyzable page payloads. It
 reuses the existing OCR layer (``utils.ocr_engine``) and ``pypdf`` (already a
 project dependency). Heavy rasterisation (``pdf2image`` / poppler) is optional:
 when it is missing the ingest degrades gracefully to selectable-text / OCR /
 metadata only -- it never raises for a readable file.
+
+Phase 5.11A adds: PDF metadata extraction, a per-page placeholder summary for
+pages whose text could not be extracted, a count of text-less pages, and a
+large-file hint -- so scanned / image-only PDFs are handled without crashing.
 """
 
 from __future__ import annotations
@@ -17,11 +21,20 @@ from .ocr_engine import extract_text_with_ocr, ocr_image
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 DEFAULT_MAX_PAGES = 12
+LARGE_FILE_MB = 20
 _PAGE_MARKER = re.compile(r"\[(?:OCR )?Page\s+(\d+)\]", re.IGNORECASE)
+_PLACEHOLDER = "（此頁未能抽取文字，需以圖像 / metadata / 人工方式覆核）"
 
 
 def _normalise(text: str) -> str:
     return "\n".join(line.strip() for line in str(text or "").splitlines() if line.strip())
+
+
+def _file_size_mb(path: Path) -> float:
+    try:
+        return round(path.stat().st_size / (1024 * 1024), 1)
+    except OSError:
+        return 0.0
 
 
 def _split_marked_text(blob: str) -> dict[int, str]:
@@ -40,6 +53,28 @@ def _split_marked_text(blob: str) -> dict[int, str]:
     return pages
 
 
+def _pdf_metadata(reader: Any) -> dict[str, str]:
+    """Best-effort, non-sensitive PDF document metadata (never a file path)."""
+    info: dict[str, str] = {}
+    try:
+        meta = reader.metadata
+    except Exception:
+        meta = None
+    if not meta:
+        return info
+    for attr, label in (("title", "title"), ("author", "author"),
+                        ("subject", "subject"), ("creator", "creator")):
+        try:
+            value = getattr(meta, attr, None)
+        except Exception:
+            value = None
+        if value:
+            cleaned = " ".join(str(value).split())[:120]
+            if cleaned:
+                info[label] = cleaned
+    return info
+
+
 def _ingest_image(file_path: Path) -> dict[str, Any]:
     result = ocr_image(file_path)
     text = _normalise(result.get("extracted_text", ""))
@@ -51,32 +86,42 @@ def _ingest_image(file_path: Path) -> dict[str, Any]:
         "ocr_status": status,
         "image_path": str(file_path),
         "source": "image",
+        "placeholder": not text,
+        "summary": text[:200] if text else _PLACEHOLDER,
     }
     return {
         "file_type": "image",
         "page_count": 1,
         "analyzed_page_count": 1,
+        "pages_without_text": 0 if text else 1,
         "pages": [page],
         "ingestion_status": "ocr" if text else "image_only",
+        "metadata": {},
         "notes": [note] if note else [],
     }
 
 
 def _ingest_pdf(file_path: Path, max_pages: int) -> dict[str, Any]:
     notes: list[str] = []
+    size_mb = _file_size_mb(file_path)
+    if size_mb >= LARGE_FILE_MB:
+        notes.append(f"圖紙檔案較大（約 {size_mb} MB），分析可能需時，請耐心等候。")
     try:
         import pypdf
 
         reader = pypdf.PdfReader(str(file_path))
         page_count = len(reader.pages)
+        metadata = _pdf_metadata(reader)
     except Exception as exc:  # unreadable / encrypted PDF
         return {
             "file_type": "pdf",
             "page_count": 0,
             "analyzed_page_count": 0,
+            "pages_without_text": 0,
             "pages": [],
             "ingestion_status": "metadata_only",
-            "notes": [f"PDF 無法解析：{type(exc).__name__}"],
+            "metadata": {},
+            "notes": [*notes, f"PDF 無法解析：{type(exc).__name__}"],
         }
 
     limit = min(page_count, max(1, max_pages))
@@ -99,6 +144,8 @@ def _ingest_pdf(file_path: Path, max_pages: int) -> dict[str, Any]:
             "ocr_status": "SELECTABLE_TEXT" if text else "EMPTY",
             "image_path": None,
             "source": "pdf_text",
+            "placeholder": not text,
+            "summary": text[:200] if text else _PLACEHOLDER,
         })
 
     ingestion_status = "selectable_text" if any_text else "metadata_only"
@@ -120,6 +167,8 @@ def _ingest_pdf(file_path: Path, max_pages: int) -> dict[str, Any]:
                     page["text"] = page_text
                     page["ocr_status"] = ocr_status
                     page["source"] = "pdf_ocr"
+                    page["placeholder"] = False
+                    page["summary"] = page_text[:200]
         else:
             for page in pages:
                 page["ocr_status"] = ocr_status
@@ -128,12 +177,18 @@ def _ingest_pdf(file_path: Path, max_pages: int) -> dict[str, Any]:
             else:
                 notes.append("此 PDF 沒有可選取文字，且 OCR 未能抽取內容；只可作有限分析。")
 
+    pages_without_text = sum(1 for page in pages if not page.get("text"))
+    if pages_without_text:
+        notes.append("部分頁面未能抽取文字，已按圖像 / metadata / 人工覆核模式處理。")
+
     return {
         "file_type": "pdf",
         "page_count": page_count,
         "analyzed_page_count": len(pages),
+        "pages_without_text": pages_without_text,
         "pages": pages,
         "ingestion_status": ingestion_status,
+        "metadata": metadata,
         "notes": notes,
     }
 
@@ -147,8 +202,10 @@ def ingest_drawing(file_path: str | Path, *, max_pages: int = DEFAULT_MAX_PAGES)
             "file_type": "unsupported",
             "page_count": 0,
             "analyzed_page_count": 0,
+            "pages_without_text": 0,
             "pages": [],
             "ingestion_status": "unsupported",
+            "metadata": {},
             "notes": ["找不到上載的圖紙檔案。"],
         }
     if suffix in IMAGE_SUFFIXES:
@@ -159,8 +216,10 @@ def ingest_drawing(file_path: str | Path, *, max_pages: int = DEFAULT_MAX_PAGES)
         "file_type": "unsupported",
         "page_count": 0,
         "analyzed_page_count": 0,
+        "pages_without_text": 0,
         "pages": [],
         "ingestion_status": "unsupported",
+        "metadata": {},
         "notes": [f"暫不支援此檔案類型：{suffix or '未知'}。請提供 PDF 或圖片圖紙。"],
     }
 
