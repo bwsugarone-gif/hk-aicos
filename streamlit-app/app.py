@@ -295,6 +295,6 @@ HK-AICOS 提供 AI 輔助工程分析，僅供初步參考及內部評估用途�
 st.markdown("""
 <div style="text-align:center; color:#999; padding:2rem 0 1rem 0; font-size:0.85rem;">
     <strong>Buildway Tech (HK) Limited</strong><br/>
-    HK-AICOS Phase 5.7 | 專為香港建築業設計
+    HK-AICOS | 專為香港建築業設計
 </div>
 """, unsafe_allow_html=True)

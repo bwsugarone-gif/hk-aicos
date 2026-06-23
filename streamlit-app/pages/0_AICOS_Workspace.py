@@ -426,7 +426,8 @@ dashboard_metrics[4].metric("RAG 片段", len(rag_chunks))
 
 with st.expander("今日 / 最近工程記憶", expanded=True):
     if not memory_summary.recent_records:
-        st.caption("尚未有 Phase 5.8 工程記憶。")
+        st.caption("尚未有相關工程記憶。")
+        st.caption("上載相片、圖紙或向 AICOS 提問後，記憶會顯示在這裡。")
     for item in memory_summary.recent_records[:3]:
         st.markdown(f"**{item.title}**")
         st.caption(f"工程：{item.project_ref or '未指定'} · 風險：{item.risk_level or '未分類'} · 狀態：{item.status}")

@@ -12,7 +12,7 @@ from .evidence_models import AnalysisBasis, RiskEvidenceTrace
 from .risk_evidence import summarize_analysis_basis
 
 
-PRODUCT_FOOTER = "Buildway Tech (HK) Limited | HK-AICOS Phase 5.7"
+PRODUCT_FOOTER = "Buildway Tech (HK) Limited | HK-AICOS"
 
 
 def inject_shared_styles() -> None:
