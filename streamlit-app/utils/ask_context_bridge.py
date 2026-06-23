@@ -7,6 +7,7 @@ from typing import Any
 
 from .analysis_models import KnowledgeSnippet, SearchResult
 from .ask_intent_router import AskIntent, classify_ask_intent
+from .drawing_context import build_drawing_context
 from .followup_store import build_followup_context, list_followups
 from .knowledge_retriever import build_knowledge_pack_context
 from .knowledge_search import search_local_knowledge
@@ -52,11 +53,13 @@ def build_ask_context_selection(
     memories: list[Any] = []
     followups: list[Any] = []
     recent: list[Any] = []
+    drawing: list[Any] = []
     visual_evidence_count = 0
 
     if allow_local and intent.intent_type in {
         "safety_definition_question", "legal_source_question", "sop_howto_question",
         "general_safety_question", "unknown", "recent_image_question",
+        "drawing_question", "cad_bim_handoff_question",
     }:
         knowledge.extend(search_local_knowledge(question, limit=limit))
         knowledge.extend(build_knowledge_pack_context(question, limit=limit))
@@ -105,6 +108,11 @@ def build_ask_context_selection(
         memories.extend(build_memory_context(question, project_ref, limit=min(3, limit)))
         followups.extend(build_followup_context(question, project_ref, limit=limit))
 
+    elif allow_records and intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
+        drawing.extend(build_drawing_context(question, project_ref, intent_type=intent.intent_type, limit=limit))
+        followups.extend(build_followup_context(question, project_ref, limit=min(3, limit)))
+        memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
+
     elif allow_records and intent.intent_type == "unknown":
         memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
 
@@ -116,6 +124,8 @@ def build_ask_context_selection(
         ordered = [*recent, *followups, *knowledge, *rag, *supplied_web]
     elif intent.intent_type in {"followup_question", "project_memory_question"}:
         ordered = [*followups, *recent, *memories, *knowledge, *rag, *supplied_web]
+    elif intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
+        ordered = [*drawing, *followups, *memories, *knowledge, *rag, *supplied_web]
     else:
         ordered = [*knowledge, *rag, *memories, *supplied_web]
 

@@ -8,7 +8,7 @@ from typing import Any
 
 MEMORY_SOURCE_TYPES = {
     "upload_analysis", "ask_aicos", "report", "follow_up",
-    "knowledge_note", "manual_note",
+    "knowledge_note", "manual_note", "drawing_analysis",
 }
 MEMORY_STATUSES = {"open", "in_progress", "resolved", "ignored", "archived"}
 MEMORY_PRIORITIES = {"low", "medium", "high", "urgent"}

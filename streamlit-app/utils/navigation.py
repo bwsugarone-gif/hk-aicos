@@ -80,6 +80,7 @@ PRIMARY_PAGES = (
 SECONDARY_PAGES = (
     ("upload", "pages/1_Upload.py"),
     ("ask", "pages/10_Ask_AICOS.py"),
+    ("drawing", "pages/12_Drawing_Analysis.py"),
     ("translate", "pages/5_Translate.py"),
     ("memory", "pages/6_Memory_Manager.py"),
     ("home", "app.py"),
@@ -94,6 +95,7 @@ _LABELS = {
         "home": "🏠 首頁",
         "upload": "📤 上載分析",
         "ask": "💬 問 AICOS",
+        "drawing": "📐 圖紙分析",
         "records": "🗂️ 地盤記錄",
         "report": "📄 分析報告",
         "history": "📜 歷史紀錄",
@@ -111,6 +113,7 @@ _LABELS = {
         "home": "🏠 Home",
         "upload": "📤 Upload Analysis",
         "ask": "💬 Ask AICOS",
+        "drawing": "📐 Drawing Analysis",
         "records": "🗂️ Site Records",
         "report": "📄 Analysis Report",
         "history": "📜 History",

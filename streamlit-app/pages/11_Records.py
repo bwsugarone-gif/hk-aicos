@@ -23,6 +23,12 @@ from utils.logo_helper import sidebar_logo
 from utils.memory_models import MEMORY_STATUSES
 from utils.navigation import render_navigation_links
 from utils.project_memory_store import read_all_memory
+from utils.drawing_store import list_recent_drawing_documents, read_pages_for_document
+from utils.drawing_models import (
+    ACTION_TYPE_LABELS_ZH,
+    DISCIPLINE_LABELS_ZH,
+    PAGE_TYPE_LABELS_ZH,
+)
 from utils.rag_indexer import build_rag_index_from_knowledge_sources, read_rag_index
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
 from utils.runtime_storage_health import get_runtime_storage_status
@@ -65,8 +71,8 @@ with st.expander("技術狀態", expanded=False):
 if st.session_state.get("records_message"):
     st.success(st.session_state.pop("records_message"))
 
-site_tab, memory_tab, followup_tab, knowledge_tab = st.tabs(
-    ["地盤記錄", "AICOS 記憶", "跟進事項", "知識來源"]
+site_tab, memory_tab, followup_tab, knowledge_tab, drawing_tab, handoff_tab = st.tabs(
+    ["地盤記錄", "AICOS 記憶", "跟進事項", "知識來源"] + ["圖紙分析", "CAD/BIM 交接"]
 )
 
 
@@ -324,5 +330,60 @@ with knowledge_tab:
             if item.path_or_url:
                 with st.expander("來源路徑／網址", expanded=False):
                     st.code(item.path_or_url)
+
+
+
+with drawing_tab:
+    drawings = list_recent_drawing_documents(limit=100)
+    st.metric("圖紙分析記錄", len(drawings))
+    if not drawings:
+        st.info("尚未有圖紙分析記錄；可於「圖紙分析」頁上載圖紙。")
+    for document in drawings[:100]:
+        disc = "、".join(DISCIPLINE_LABELS_ZH.get(d, d) for d in document.disciplines) or "未能確定"
+        title = document.source_file_name or document.document_id
+        with st.expander(f"{(document.created_at or '')[:19].replace('T', ' ')} · {title}"):
+            cols = st.columns(4)
+            cols[0].markdown(f"**項目**  \n{document.project_ref or '未指定'}")
+            cols[1].markdown(f"**分析頁數**  \n{document.analyzed_page_count}")
+            cols[2].markdown(f"**交接事項**  \n{len(document.handoff_items)}")
+            cols[3].markdown(f"**專業**  \n{disc}")
+            st.write(document.summary)
+            if document.drawing_issues:
+                st.markdown("**待確認：** " + "；".join(document.drawing_issues[:6]))
+            if document.missing_information:
+                st.markdown("**缺資料：** " + "；".join(document.missing_information[:6]))
+            for page in read_pages_for_document(document.document_id):
+                ptype = PAGE_TYPE_LABELS_ZH.get(page.page_type, page.page_type)
+                pdisc = DISCIPLINE_LABELS_ZH.get(page.discipline, page.discipline)
+                st.caption(
+                    f"第 {page.page_number} 頁 · {ptype} · {pdisc} · "
+                    f"圖號 {page.drawing_number or '未標示'} · 比例 {page.scale or '未標示'}"
+                )
+
+
+with handoff_tab:
+    team_labels = {"cad": "CAD", "bim": "BIM", "both": "CAD／BIM"}
+    priority_labels = {"low": "低", "medium": "中", "high": "高", "urgent": "緊急"}
+    drawings = list_recent_drawing_documents(limit=100)
+    rows = [(document, item) for document in drawings for item in document.handoff_items]
+    st.metric("CAD/BIM 交接事項", len(rows))
+    if not rows:
+        st.info("尚未有 CAD/BIM 交接事項。")
+    f_team, f_priority = st.columns(2)
+    team_filter = f_team.selectbox("團隊", ["", "cad", "bim", "both"], format_func=lambda v: team_labels.get(v, "全部") if v else "全部", key="handoff_team")
+    priority_filter = f_priority.selectbox("優先度", ["", "urgent", "high", "medium", "low"], format_func=lambda v: priority_labels.get(v, "全部") if v else "全部", key="handoff_priority")
+    for document, item in rows[:300]:
+        if team_filter and item.target_team != team_filter:
+            continue
+        if priority_filter and item.priority != priority_filter:
+            continue
+        team = team_labels.get(item.target_team, item.target_team)
+        action = ACTION_TYPE_LABELS_ZH.get(item.action_type, item.action_type)
+        priority = priority_labels.get(item.priority, item.priority)
+        page_hint = f"（第 {item.page_number} 頁）" if item.page_number else ""
+        with st.expander(f"[{team}｜{action}｜優先：{priority}] {item.title}{page_hint}"):
+            st.write(item.description or "")
+            st.caption(f"來源圖紙：{document.source_file_name or document.document_id} · 項目：{document.project_ref or '未指定'}")
+
 
 render_product_footer()

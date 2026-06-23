@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 
 INTENT_LABELS = {
     "recent_image_question": "最近相片跟進",
+    "drawing_question": "圖紙分析查詢",
+    "cad_bim_handoff_question": "CAD/BIM 交接查詢",
     "project_memory_question": "工程記憶查詢",
     "followup_question": "跟進事項查詢",
     "safety_definition_question": "安全定義 / 知識查詢",
@@ -20,6 +22,12 @@ _IMAGE_TERMS = ("這張相", "呢張相", "張相", "相片", "圖片", "剛才�
 _RECENT_UPLOAD_TERMS = ("剛才上載", "頭先上載", "剛才分析", "頭先分析")
 _RECENT_TERMS = ("剛才", "頭先", "這張", "呢張", "上載")
 _IMAGE_EVIDENCE_TERMS = ("磨機", "火花", "切割", "相", "圖片")
+_CAD_BIM_TERMS = ("cad", "bim", "交接", "繪圖", "建模", "cad team", "bim team", "draft team")
+_DRAWING_TERMS = (
+    "圖紙", "圖則", "呢份圖", "這份圖", "哩份圖", "張圖", "幅圖", "圖面", "圖樣",
+    "drawing", "sheet", "缺資料", "缺圖", "site verify", "現場核實", "走位",
+    "哪頁", "邊頁", "幾頁", "尺寸", "標高", "開口位",
+)
 _UNSAFE_BEHAVIOUR_TERMS = ("有冇不安全行為", "有沒有不安全行為", "不安全行為")
 _DEFINITION_MARKERS = ("定義", "乜嘢係", "咩係", "什麼是", "甚麼是", "點定義", "有咩要求", "有什麼要求")
 _SAFETY_TOPICS = (
@@ -56,6 +64,13 @@ def classify_ask_intent(question: str, has_recent_upload: bool = False) -> AskIn
     unsafe_hits = _hits(text, _UNSAFE_BEHAVIOUR_TERMS)
     if image_hits or recent_upload_hits or (recent_hits and evidence_hits) or (unsafe_hits and has_recent_upload):
         return _intent("recent_image_question", [*image_hits, *recent_upload_hits, *recent_hits, *evidence_hits, *unsafe_hits], True)
+
+    cad_bim_hits = _hits(text, _CAD_BIM_TERMS)
+    drawing_hits = _hits(text, _DRAWING_TERMS)
+    if cad_bim_hits:
+        return _intent("cad_bim_handoff_question", [*cad_bim_hits, *drawing_hits])
+    if drawing_hits:
+        return _intent("drawing_question", drawing_hits)
 
     legal_hits = _hits(text, _LEGAL_TERMS)
     if legal_hits:
