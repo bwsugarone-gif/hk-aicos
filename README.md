@@ -6,8 +6,8 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 
 ## 目前狀態（Current Status）
 
-- 當前 dev 基線：**Phase 5.11 — Drawing Analysis Live Hardening**（建基於 Phase 5.10）
-- Phase 5.10 基線提交（baseline commit）：`95fcaed2e51af52c8d0d5627068ab06d86bee30c`
+- 當前 dev 基線：**Phase 6.6 — Client Trial Mode / Demo Workflow**（建基於 Phase 6.1 / 6.3 / 6.4 / 6.5）
+- Phase 6.6 基線提交（baseline commit）：`39e8ac44d0c876a5d20fd98ed5599f663ce96e06`
 - `main` 分支可能落後於 `dev`，直至 Cloud smoke test 通過後才合併。
 - 主要應用程式入口（Primary app entry）：`streamlit-app/app.py`
 - 建議 Python 版本（Recommended Python）：**3.11.9**
@@ -21,12 +21,14 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 | AICOS Workspace | `/AICOS_Workspace` | 統一工作台，整合分析、問答與記錄入口 |
 | Upload analysis | `/Upload` | 上載地盤相片或工程文件進行分析 |
 | Ask AICOS | `/Ask_AICOS` | 安全、法例、施工方法文字問答 |
-| Records | `/Records` | Memory／Follow-up／Knowledge／Drawing 記錄檢視 |
+| Records | `/Records` | 全部記錄統一搜尋：Memory／Follow-up／Knowledge／RAG／Drawing／CAD-BIM／檔案登記 |
 | Reports | `/Report` | 分析結果整理與報告輸出 |
 | Project Dashboard | `/Project_Dashboard` | 項目概況與進度視圖 |
 | Risk Center | `/Risk_Center` | 風險彙整與檢視 |
 | Action Tracking | `/Action_Tracker` | 行動項目／跟進事項追蹤 |
 | Drawing Analysis | `/Drawing_Analysis` | 圖則／PDF 分析與 CAD／BIM 交接 |
+| Knowledge Ingestion | `/Knowledge_Ingestion` | 上載 PDF／TXT／MD 文件，抽取文字並建立知識來源與 RAG 片段 |
+| Release Readiness | `/Release_Readiness` | 發佈就緒檢查、雲端冒煙清單及客戶試用工作流程 |
 
 ## 階段摘要（Phase Summary）
 
@@ -35,6 +37,11 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 - **Phase 5.9**：Provider health、Gemini Vision、RAG foundation、intent router、熱工序／高空工作答案路由（hot-work / high-work answer routing）。
 - **Phase 5.10**：圖則／PDF 分析、標題欄擷取（title block extraction）、圖則分類（drawing classification）、問題擷取（issue extraction）、CAD／BIM 交接項目（handoff items）、Drawing Analysis 頁面、Ask AICOS 圖則內容情境（drawing context）。
 - **Phase 5.11**：圖紙分析實戰強化（Drawing Analysis Live Hardening）——更可靠的真實 PDF／圖片圖紙處理及安全頁數上限、更準確的標題欄擷取（EN／中文標籤、Drg/Dwg/Job No.、樓層）、更佳的圖紙頁面分類、更貼近實務的 CAD/BIM 交接用詞（負責團隊／所需成果／覆核人）、Records 圖紙與交接搜尋及狀態更新、Ask AICOS 圖紙查詢情境（未有分析時提示先上載圖紙）。
+- **Phase 6.1**：上載檔案 metadata 層與檔案登記（File Registry），原檔儲存標示「本機暫存 / Drive-ready」，正常 UI 不顯示本機路徑。
+- **Phase 6.3**：記錄統一搜尋（Records unified search），跨工程記憶／跟進／知識來源／RAG 片段／圖紙／CAD-BIM 交接／檔案登記。
+- **Phase 6.4**：知識／PDF 匯入（Knowledge Ingestion）、頁碼級 RAG 片段持久化（RAG chunk persistence）、掃描 PDF 降級為 metadata-only，Ask AICOS 可引用文件知識。
+- **Phase 6.5**：發佈就緒（Release Gate / Cloud QA / Admin Readiness）——就緒分數、阻塞項目、冒煙清單、金鑰只顯示已設定／未設定。
+- **Phase 6.6**：客戶試用模式（Client Trial Mode / Demo Workflow）——試用流程卡、試用進度檢查、可重複建立的安全 Demo 試用資料（`AICOS-DEMO`）。
 
 ## 核心能力（Core Capabilities）
 
@@ -74,6 +81,20 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 - CAD／BIM 交接項目（CAD/BIM handoff items）
 - Ask AICOS 可引用最近的圖則分析（reference recent drawing analysis）
 
+### E. 檔案登記／知識匯入／統一搜尋（File Registry / Knowledge Ingestion / Unified Search）
+
+- 檔案登記（File Registry）：上載相片／圖紙／PDF／知識檔案的 metadata 層；原檔儲存標示「本機暫存 / Drive-ready」，正常 UI 不顯示本機路徑。
+- 知識匯入（Knowledge Ingestion）：上載 PDF／TXT／MD／DOCX，抽取可選取文字並建立知識來源；掃描／無文字 PDF 降級為 metadata-only 並提示改用 OCR／可選取文字版本。
+- RAG 片段（RAG chunks）：頁碼級切片並持久化於獨立 store，避免被知識索引重建覆蓋。
+- 記錄統一搜尋（Records unified search）：跨 8 類記錄的本地、可決定性關鍵字搜尋（無 embeddings）。
+
+### F. 發佈就緒／客戶試用（Release Readiness / Client Trial）
+
+- 發佈就緒（Release Readiness）：核心頁面與功能模組就緒檢查、就緒分數、阻塞項目、雲端冒煙清單；金鑰只顯示已設定／未設定，永不顯示金鑰值。
+- 客戶試用模式（Client Trial Mode）：未啟用登入／權限下的試用流程卡（A–G）、試用進度檢查及試用提示。
+- Demo 試用資料：使用者按「建立 Demo 試用資料」才會建立示範項目 `AICOS-DEMO` 的安全樣本（可重複、不含真實機密資料）。
+- Google Drive：已預留欄位與 hook（ready-to-connect），尚未啟用 live OAuth。
+
 ## 執行期資料警告（Runtime Data Warning）
 
 下列 runtime JSONL 檔案由應用程式在執行期產生，已被 `.gitignore` 忽略（`streamlit-app/data/*.jsonl`），在 Streamlit Cloud 上可能屬臨時性、隨時被清除：
@@ -84,6 +105,9 @@ HK-AICOS 是 Buildway Tech 為香港建造業而設的 AI 工程助理：分析�
 - `streamlit-app/data/rag_index.jsonl`
 - `streamlit-app/data/drawing_analysis.jsonl`
 - `streamlit-app/data/drawing_pages.jsonl`
+- `streamlit-app/data/file_registry.jsonl`
+- `streamlit-app/data/ingested_knowledge.jsonl`
+- `streamlit-app/data/ingested_rag_chunks.jsonl`
 
 > 這些檔案 **不會被提交（not committed）**，亦 **不是生產級持久化儲存（not production persistence）**。請勿依賴它們作長期資料保存。
 
@@ -161,20 +185,23 @@ python -m pytest -q
   - [ ] 熱工序定義？
   - [ ] 高空工作定義？
   - [ ] 這張相有咩問題？
-- [ ] `/Records` 顯示 memory／follow-up／knowledge／drawing 記錄
+- [ ] `/Records` 全部記錄搜尋可找到 drawing／handoff／knowledge／file 記錄
+- [ ] `/Knowledge_Ingestion` 上載 PDF／TXT／MD 後產生知識來源與 RAG 片段
+- [ ] `/Release_Readiness` 顯示就緒分數、冒煙清單及客戶試用流程
 - [ ] `/Drawing_Analysis` 可開啟
 - [ ] 上載 PDF／圖片圖則後產生：
   - [ ] 文件概覽（document overview）
   - [ ] 頁面摘要（page summary）
   - [ ] 問題／缺漏資訊（issues / missing information）
   - [ ] CAD／BIM 交接清單（CAD/BIM handoff list）
+- [ ] `/Ask_AICOS` 能引用已上載的 PDF／圖則／CAD-BIM 內容作答
 - [ ] 正常 UI **不會** 顯示 API keys、原始供應商錯誤（raw provider errors）、Traceback、原始 JSON 或檔案系統路徑（filesystem paths）
 
 ## 尚未生產／延後項目（Not Yet Production / Deferred）
 
-- Google Drive live OAuth
+- Google Drive：已 ready-to-connect（欄位／hook 已預留），live OAuth 尚未啟用（Google Drive pending / ready-to-connect）
 - Supabase persistence
-- 使用者／租戶／項目權限（user / tenant / project permissions）
+- 使用者／團隊／項目權限與登入（user / team / project permissions & login）— 延後至 **Phase 6.2**（deferred to Phase 6.2）
 - 向量資料庫／嵌入（vector DB / embeddings）
 - 掃描圖則的完整 PDF 文字擷取（full PDF text extraction for scanned drawings）
 - 完整 CAD 製圖（full CAD authoring）
