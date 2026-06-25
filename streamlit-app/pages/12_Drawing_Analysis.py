@@ -130,6 +130,9 @@ if submitted:
                     "memory_id": links.get("memory_id"),
                     "followups": len(links.get("followups") or []),
                     "file_registered": bool(links.get("file_id")),
+                    "storage_provider": getattr(links.get("file_record"), "storage_provider", "local_runtime"),
+                    "drive_web_url": getattr(links.get("file_record"), "drive_web_url", None),
+                    "drive_note": (getattr(links.get("file_record"), "metadata", {}) or {}).get("drive_note"),
                 }
             except Exception:
                 st.session_state["drawing_result"] = {"error": True}
@@ -249,7 +252,12 @@ elif result:
 
     st.markdown("### 儲存 / 建立跟進")
     if result.get("file_registered"):
-        st.caption("檔案已登記 · 原檔儲存：本機暫存 / Drive-ready")
+        _provider_label = "Google Drive" if result.get("storage_provider") == "google_drive" else "本機暫存"
+        st.caption("檔案已登記 · 原檔儲存：" + _provider_label)
+        if result.get("drive_web_url"):
+            st.markdown(f"[在 Google Drive 開啟]({result['drive_web_url']})")
+        elif result.get("drive_note"):
+            st.warning(result["drive_note"])
     if result.get("memory_id"):
         st.success(
             f"已自動儲存為工程記憶，並建立 {result.get('followups', 0)} 項跟進事項；"

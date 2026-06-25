@@ -599,6 +599,10 @@ with file_tab:
         provider_label = STORAGE_PROVIDER_LABELS_ZH.get(record.storage_provider, record.storage_provider)
         with st.expander(f"[{type_label}] {record.original_file_name}"):
             st.caption("檔案已登記 · 原檔儲存：" + provider_label)
+            if record.drive_web_url:
+                st.markdown(f"[在 Google Drive 開啟]({record.drive_web_url})")
+            elif (record.metadata or {}).get("drive_note"):
+                st.caption(str(record.metadata.get("drive_note")))
             bits = []
             if record.project_ref:
                 bits.append(f"工程：{record.project_ref}")

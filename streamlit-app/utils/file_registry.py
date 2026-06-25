@@ -80,6 +80,55 @@ def register_file(
     return normalized
 
 
+def register_file_with_optional_drive(
+    record: StoredFileRecord | dict[str, Any],
+    *,
+    local_path: Any = None,
+    uploader: Any = None,
+    drive_config: Any = None,
+    path: str | Path = DEFAULT_REGISTRY_PATH,
+) -> StoredFileRecord:
+    """Upload the original file to Google Drive when configured, then register.
+
+    Falls back to ``local_runtime`` (no crash) when Drive is not configured or the
+    upload fails; a safe Traditional-Chinese warning is stored under
+    ``metadata["drive_note"]`` for the UI. Service-account credentials are never
+    handled here. On Drive success, ``drive_file_id`` / ``drive_web_url`` /
+    ``storage_provider="google_drive"`` are stored on the record.
+    """
+    payload = StoredFileRecord.from_dict(record).to_dict()
+    if local_path:
+        result = None
+        try:
+            from .drive_storage import upload_to_drive_if_configured
+
+            result = upload_to_drive_if_configured(
+                local_path,
+                file_name=payload.get("original_file_name") or "upload",
+                file_type=payload.get("file_type") or "unknown",
+                project_ref=payload.get("project_ref"),
+                mime_type=payload.get("mime_type"),
+                source_module=payload.get("source_module"),
+                uploader=uploader,
+                config=drive_config,
+            )
+        except Exception:
+            result = None
+        if result is not None:
+            if getattr(result, "success", False) and getattr(result, "drive_file_id", None):
+                payload["drive_file_id"] = result.drive_file_id
+                payload["drive_web_url"] = result.drive_web_url
+                payload["storage_provider"] = "google_drive"
+                meta = dict(payload.get("metadata") or {})
+                meta["drive_folder"] = result.folder
+                payload["metadata"] = meta
+            elif getattr(result, "warning", ""):
+                meta = dict(payload.get("metadata") or {})
+                meta["drive_note"] = result.warning
+                payload["metadata"] = meta
+    return register_file(payload, path=path)
+
+
 def list_file_records(
     *,
     project_ref: str | None = None,

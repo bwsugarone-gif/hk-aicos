@@ -172,6 +172,8 @@ def ingest_document(
     knowledge_path: str | Path = DEFAULT_INGESTED_KNOWLEDGE_PATH,
     rag_path: str | Path = DEFAULT_INGESTED_RAG_PATH,
     registry_path: Any = None,
+    drive_uploader: Any = None,
+    drive_config: Any = None,
 ) -> IngestionResult:
     """Ingest one uploaded document into a knowledge source + RAG chunks."""
     path = Path(file_path)
@@ -191,6 +193,8 @@ def ingest_document(
         knowledge_path=knowledge_path,
         rag_path=rag_path,
         registry_path=registry_path,
+        drive_uploader=drive_uploader,
+        drive_config=drive_config,
     )
 
 
@@ -243,6 +247,8 @@ def _finalize_ingestion(
     rag_path: str | Path,
     registry_path: Any,
     title: str | None = None,
+    drive_uploader: Any = None,
+    drive_config: Any = None,
 ) -> IngestionResult:
     now = _now()
     tags = list(dict.fromkeys(tags or []))
@@ -301,6 +307,8 @@ def _finalize_ingestion(
                 tags=tags,
                 has_text=bool(has_text),
                 registry_path=registry_path,
+                drive_uploader=drive_uploader,
+                drive_config=drive_config,
             )
 
     return IngestionResult(
@@ -323,9 +331,11 @@ def _register_file(
     tags: list[str],
     has_text: bool,
     registry_path: Any,
+    drive_uploader: Any = None,
+    drive_config: Any = None,
 ) -> None:
     try:
-        from .file_registry import register_file
+        from .file_registry import register_file_with_optional_drive
         from .file_storage import build_file_metadata, guess_file_type
 
         file_type = guess_file_type(original_file_name, source_module="knowledge_ingestion")
@@ -340,6 +350,12 @@ def _register_file(
             metadata={"has_extracted_text": bool(has_text)},
         )
         kwargs = {"path": registry_path} if registry_path is not None else {}
-        register_file(payload, **kwargs)
+        register_file_with_optional_drive(
+            payload,
+            local_path=local_runtime_path,
+            uploader=drive_uploader,
+            drive_config=drive_config,
+            **kwargs,
+        )
     except Exception:
         return

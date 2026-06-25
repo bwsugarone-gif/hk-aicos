@@ -38,6 +38,7 @@ SOURCE_MODULES = {
 STORAGE_PROVIDERS = {
     "local_runtime",
     "google_drive_ready",
+    "google_drive",
     "external_reference",
 }
 
@@ -55,6 +56,7 @@ FILE_TYPE_LABELS_ZH = {
 STORAGE_PROVIDER_LABELS_ZH = {
     "local_runtime": "本機暫存",
     "google_drive_ready": "Drive-ready",
+    "google_drive": "Google Drive",
     "external_reference": "外部連結",
 }
 

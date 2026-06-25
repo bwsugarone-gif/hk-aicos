@@ -109,13 +109,17 @@ def register_drawing_source_file(
     memory_id: str | None = None,
     persist: bool = True,
     registry_path: Any = None,
+    drive_uploader: Any = None,
+    drive_config: Any = None,
 ):
     """Register the uploaded drawing file's metadata in the file registry.
 
-    Stores metadata only (no binary, no path exposed in the normal UI). Never
-    raises into the analysis flow — registration is best-effort.
+    Stores metadata only (no binary, no path exposed in the normal UI). When
+    Google Drive is configured the original file is uploaded to the project's
+    ``Drawings`` folder and the Drive id / link are stored; otherwise it falls
+    back to ``local_runtime``. Never raises into the analysis flow.
     """
-    from .file_registry import register_file
+    from .file_registry import register_file_with_optional_drive
     from .file_storage import build_file_metadata
     from .file_storage_models import StoredFileRecord
 
@@ -140,7 +144,13 @@ def register_drawing_source_file(
         return StoredFileRecord.from_dict(payload)
     kwargs = {"path": registry_path} if registry_path is not None else {}
     try:
-        return register_file(payload, **kwargs)
+        return register_file_with_optional_drive(
+            payload,
+            local_path=source_path,
+            uploader=drive_uploader,
+            drive_config=drive_config,
+            **kwargs,
+        )
     except Exception:
         return None
 
@@ -154,6 +164,8 @@ def save_drawing_analysis(
     source_path: Any = None,
     file_name: str | None = None,
     registry_path: Any = None,
+    drive_uploader: Any = None,
+    drive_config: Any = None,
 ) -> dict[str, Any]:
     """Convenience: register memory + follow-ups for an analyzed document.
 
@@ -176,6 +188,8 @@ def save_drawing_analysis(
         memory_id=memory_id,
         persist=persist,
         registry_path=registry_path,
+        drive_uploader=drive_uploader,
+        drive_config=drive_config,
     )
     return {
         "memory": memory,

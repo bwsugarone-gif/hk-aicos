@@ -13,6 +13,7 @@ if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
 from utils.file_loader import save_uploaded_file
+from utils.drive_config import is_drive_enabled
 from utils.knowledge_ingestion import ingest_document
 from utils.logo_helper import sidebar_logo
 from utils.navigation import render_navigation_links
@@ -88,7 +89,8 @@ elif result:
             "如需全文搜尋，請使用 OCR 版本或補充文字。"
         )
     else:
-        st.success("檔案已登記 · 原檔儲存：本機暫存 / Drive-ready · 已建立知識來源及 RAG 片段。")
+        _storage_label = "Google Drive" if is_drive_enabled() else "本機暫存"
+        st.success(f"檔案已登記 · 原檔儲存：{_storage_label} · 已建立知識來源及 RAG 片段。")
 
     cols = st.columns(4)
     cols[0].metric("抽取字元", int(result.get("extracted_chars", 0) or 0))
