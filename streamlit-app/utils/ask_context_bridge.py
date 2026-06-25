@@ -19,6 +19,7 @@ from .knowledge_tracker import build_knowledge_context
 from .memory_indexer import build_project_memory_context
 from .project_memory_store import read_all_memory
 from .query_expander import HOT_WORK_QUERY_TERMS, WORK_AT_HEIGHT_QUERY_TERMS, safety_query_profile
+from .rag_persistence import build_ingested_rag_context, read_ingested_chunks
 from .rag_retriever import build_rag_context
 from .site_memory import build_memory_context
 from .site_record_store import SiteRecordStore
@@ -58,13 +59,18 @@ def build_ask_context_selection(
     followups: list[Any] = []
     recent: list[Any] = []
     drawing: list[Any] = []
+    document: list[Any] = []
     drawing_summary: dict[str, Any] | None = None
     visual_evidence_count = 0
+    document_chunk_count = 0
+    document_metadata_only = False
+    document_intents = {"pdf_question", "knowledge_document_question", "records_search_question"}
 
     if allow_local and intent.intent_type in {
         "safety_definition_question", "legal_source_question", "sop_howto_question",
         "general_safety_question", "unknown", "recent_image_question",
         "drawing_question", "cad_bim_handoff_question",
+        "pdf_question", "knowledge_document_question", "records_search_question",
     }:
         knowledge.extend(search_local_knowledge(question, limit=limit))
         knowledge.extend(build_knowledge_pack_context(question, limit=limit))
@@ -122,6 +128,16 @@ def build_ask_context_selection(
         followups.extend(build_followup_context(question, project_ref, limit=min(3, limit)))
         memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
 
+    elif allow_records and intent.intent_type in document_intents:
+        ingested = build_ingested_rag_context(question, project_ref, limit=limit)
+        document.extend(ingested)
+        document_chunk_count = len(ingested)
+        memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
+        followups.extend(build_followup_context(question, project_ref, limit=min(2, limit)))
+        if not ingested and _has_metadata_only_documents(project_ref):
+            document_metadata_only = True
+            document.append(_metadata_only_document_snippet())
+
     elif allow_records and intent.intent_type == "unknown":
         memories.extend(build_project_memory_context(question, project_ref, limit=min(2, limit)))
 
@@ -135,6 +151,8 @@ def build_ask_context_selection(
         ordered = [*followups, *recent, *memories, *knowledge, *rag, *supplied_web]
     elif intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
         ordered = [*drawing, *followups, *memories, *knowledge, *rag, *supplied_web]
+    elif intent.intent_type in document_intents:
+        ordered = [*document, *knowledge, *rag, *memories, *followups, *supplied_web]
     else:
         ordered = [*knowledge, *rag, *memories, *supplied_web]
 
@@ -157,6 +175,8 @@ def build_ask_context_selection(
         "drawing_found": 1 if (drawing_summary and drawing_summary.get("found")) else 0,
         "drawing_handoff": int(drawing_summary.get("handoff_count", 0)) if drawing_summary else 0,
         "drawing_pages": int(drawing_summary.get("page_count", 0)) if drawing_summary else 0,
+        "document_chunks": document_chunk_count,
+        "document_metadata_only": 1 if document_metadata_only else 0,
     }
     return AskContextSelection(
         intent=intent,
@@ -170,6 +190,15 @@ def build_ask_context_selection(
 
 
 def _context_basis(intent: AskIntent, counts: dict[str, int], recent_referenced: bool) -> list[str]:
+    if intent.intent_type in {"pdf_question", "knowledge_document_question", "records_search_question"}:
+        lines = [
+            f"問題類型：{intent.label}",
+            f"文件 RAG 片段：{counts.get('document_chunks', 0)} 項",
+            f"知識來源：{counts.get('knowledge', 0)} 項",
+        ]
+        if counts.get("document_metadata_only"):
+            lines.append("文件狀態：只有 metadata，未能確認全文內容（建議補充 OCR／可選取文字版本）。")
+        return lines
     if intent.intent_type in {"drawing_question", "cad_bim_handoff_question"}:
         return [
             "問題類型：圖紙 / CAD-BIM 查詢",
@@ -217,6 +246,41 @@ def _latest_analysis_context(data: dict[str, Any] | None) -> tuple[KnowledgeSnip
         trust_level="uploaded_record",
         provider="session_context",
     ), len(evidence or observations)
+
+
+def _has_metadata_only_documents(project_ref: str | None) -> bool:
+    """True when uploaded knowledge sources exist but no searchable chunks do."""
+    try:
+        from .knowledge_ingestion import read_ingested_knowledge_sources
+
+        sources = read_ingested_knowledge_sources()
+    except Exception:
+        return False
+    if not sources:
+        return False
+    try:
+        chunks = read_ingested_chunks()
+    except Exception:
+        chunks = []
+    if project_ref:
+        chunks = [c for c in chunks if (c.project_ref or "").lower() == project_ref.lower()]
+    return not chunks
+
+
+def _metadata_only_document_snippet() -> KnowledgeSnippet:
+    return KnowledgeSnippet(
+        title="已上載文件（僅 metadata）",
+        path="知識文件 / metadata-only",
+        snippet=(
+            "已找到上載文件，但未能抽取可搜尋的文字內容，無法確認文件是否包含相關章節。"
+            "請改用 OCR 版本或可選取文字的 PDF，或補充文字內容後再試。"
+        ),
+        score=2.0,
+        source_type="document_guidance",
+        source_id="doc-guidance:metadata-only",
+        trust_level="uploaded_record",
+        provider="knowledge_ingestion",
+    )
 
 
 def _latest_upload_memory(project_ref: str | None):

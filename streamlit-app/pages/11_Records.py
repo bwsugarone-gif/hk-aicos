@@ -35,7 +35,20 @@ from utils.drawing_models import (
     PAGE_TYPE_LABELS_ZH,
 )
 from utils.drawing_records import filter_drawing_documents, filter_handoff_rows
+from utils.file_registry import list_file_records
+from utils.file_storage_models import (
+    FILE_TYPE_LABELS_ZH,
+    STORAGE_PROVIDER_LABELS_ZH,
+)
+from utils.knowledge_ingestion import read_ingested_knowledge_sources
 from utils.rag_indexer import build_rag_index_from_knowledge_sources, read_rag_index
+from utils.rag_persistence import read_ingested_chunks
+from utils.records_filters import filter_file_records
+from utils.records_search import (
+    RECORD_TYPE_LABELS_ZH,
+    build_unified_record_index,
+    search_unified_records,
+)
 from utils.risk_evidence import build_analysis_basis, build_risk_evidence_trace
 from utils.runtime_storage_health import get_runtime_storage_status
 from utils.site_record_store import (
@@ -77,9 +90,71 @@ with st.expander("技術狀態", expanded=False):
 if st.session_state.get("records_message"):
     st.success(st.session_state.pop("records_message"))
 
-site_tab, memory_tab, followup_tab, knowledge_tab, drawing_tab, handoff_tab = st.tabs(
-    ["地盤記錄", "AICOS 記憶", "跟進事項", "知識來源"] + ["圖紙分析", "CAD/BIM 交接"]
+(
+    search_tab,
+    site_tab,
+    memory_tab,
+    followup_tab,
+    knowledge_tab,
+    rag_tab,
+    drawing_tab,
+    handoff_tab,
+    file_tab,
+) = st.tabs(
+    ["全部記錄搜尋"]
+    + ["地盤記錄", "AICOS 記憶", "跟進事項", "知識來源"]
+    + ["RAG 片段", "圖紙分析", "CAD/BIM 交接", "檔案登記"]
 )
+
+
+with search_tab:
+    st.caption("跨工程記憶、跟進、知識來源、RAG 片段、圖紙、CAD/BIM 交接及檔案登記的統一搜尋。")
+    unified_index = build_unified_record_index()
+    u_projects = sorted({r.project_ref for r in unified_index if r.project_ref})
+    u_types = sorted({r.record_type for r in unified_index})
+    us1, us2, us3 = st.columns([1, 1, 2])
+    u_project = us1.selectbox(
+        "工程編號", [""] + u_projects, format_func=lambda v: v or "全部", key="unified_project"
+    )
+    u_type = us2.selectbox(
+        "記錄類型", [""] + u_types,
+        format_func=lambda v: RECORD_TYPE_LABELS_ZH.get(v, v) if v else "全部",
+        key="unified_type",
+    )
+    u_keyword = us3.text_input(
+        "關鍵字", placeholder="搜尋標題、摘要、檔名、圖號或狀態", key="unified_keyword"
+    )
+    unified_results = search_unified_records(
+        unified_index,
+        keyword=u_keyword,
+        project_ref=u_project,
+        record_type=u_type,
+        limit=300,
+    )
+    st.metric("符合記錄", len(unified_results))
+    if not unified_results:
+        st.info("未找到符合條件的記錄；可調整關鍵字或先匯入知識文件／上載圖紙。")
+    for record in unified_results[:200]:
+        card = record.to_card_dict()
+        meta_bits = [card["type_label"]]
+        if card["project_ref"]:
+            meta_bits.append(f"工程 {card['project_ref']}")
+        if card["source_file_name"]:
+            meta_bits.append(f"檔案 {card['source_file_name']}")
+        if card["sheet_number"]:
+            meta_bits.append(f"圖號／頁 {card['sheet_number']}")
+        status_bits = [b for b in (card["status"], card["priority"], card["risk_level"]) if b]
+        with st.expander(f"[{card['type_label']}] {card['title']}"):
+            st.caption(" · ".join(meta_bits))
+            if status_bits:
+                st.caption("狀態／優先／風險：" + " · ".join(status_bits))
+            if card["summary"]:
+                st.write(card["summary"])
+            linked = {k: v for k, v in (record.linked_ids or {}).items() if v}
+            if linked:
+                with st.expander("相關連結編號", expanded=False):
+                    for key, value in linked.items():
+                        st.caption(f"{key}：{value}")
 
 
 with site_tab:
@@ -284,8 +359,8 @@ with followup_tab:
 
 
 with knowledge_tab:
-    sources = read_knowledge_index()
-    rag_chunks = read_rag_index()
+    sources = read_knowledge_index() + read_ingested_knowledge_sources()
+    rag_chunks = read_rag_index() + read_ingested_chunks()
     trust_counts = Counter(item.trust_level for item in sources)
     drive = GoogleDriveKnowledgeAdapter()
     k1, k2, k3, k4, k5, k6 = st.columns(6)
@@ -337,6 +412,42 @@ with knowledge_tab:
                 with st.expander("來源路徑／網址", expanded=False):
                     st.code(item.path_or_url)
 
+
+
+with rag_tab:
+    st.caption("RAG 片段來自已匯入文件及本機知識索引，可用作問答檢索。")
+    all_chunks = read_rag_index() + read_ingested_chunks()
+    rag_projects = sorted({c.project_ref for c in all_chunks if c.project_ref})
+    rag_files = sorted({c.source_file_name for c in all_chunks if c.source_file_name})
+    rg1, rg2, rg3 = st.columns([1, 1, 2])
+    rag_project = rg1.selectbox("工程", [""] + rag_projects, format_func=lambda v: v or "全部", key="rag_project")
+    rag_file = rg2.selectbox("來源檔案", [""] + rag_files, format_func=lambda v: v or "全部", key="rag_file")
+    rag_keyword = rg3.text_input("關鍵字", placeholder="搜尋片段內容", key="rag_keyword")
+    needle = rag_keyword.strip().lower()
+    filtered_chunks = [
+        c for c in all_chunks
+        if (not rag_project or (c.project_ref or "") == rag_project)
+        and (not rag_file or (c.source_file_name or "") == rag_file)
+        and (not needle or needle in (c.text + " " + c.title).lower())
+    ]
+    st.metric("RAG 片段", len(filtered_chunks))
+    if not filtered_chunks:
+        st.info("尚未有符合條件的 RAG 片段；可於「知識匯入」頁上載 PDF／文件。")
+    for chunk in filtered_chunks[:200]:
+        page_hint = f"（第 {chunk.page_number} 頁）" if chunk.page_number else ""
+        with st.expander(f"{chunk.title}{page_hint}"):
+            st.write(chunk.text[:700])
+            bits = []
+            if chunk.source_file_name:
+                bits.append(f"來源檔案：{chunk.source_file_name}")
+            if chunk.page_number:
+                bits.append(f"頁碼：{chunk.page_number}")
+            if chunk.project_ref:
+                bits.append(f"工程：{chunk.project_ref}")
+            if bits:
+                st.caption(" · ".join(bits))
+            with st.expander("片段編號", expanded=False):
+                st.caption(f"chunk_id：{chunk.chunk_id} · source_id：{chunk.source_id}")
 
 
 with drawing_tab:
@@ -460,6 +571,55 @@ with handoff_tab:
                     update_handoff_item_status(document.document_id, item.item_id, new_status)
                     st.session_state["records_message"] = "CAD/BIM 交接狀態已更新。"
                     st.rerun()
+
+
+with file_tab:
+    st.caption("已登記的上載檔案 metadata；原檔儲存於本機暫存 / Drive-ready，正常介面不顯示本機路徑。")
+    file_records = list_file_records(limit=None)
+    fr_projects = sorted({r.project_ref for r in file_records if r.project_ref})
+    fr_types = sorted({r.file_type for r in file_records if r.file_type})
+    fr1, fr2, fr3 = st.columns([1, 1, 2])
+    file_project = fr1.selectbox("工程", [""] + fr_projects, format_func=lambda v: v or "全部", key="file_project")
+    file_type = fr2.selectbox(
+        "檔案類型", [""] + fr_types,
+        format_func=lambda v: FILE_TYPE_LABELS_ZH.get(v, v) if v else "全部", key="file_type_filter",
+    )
+    file_keyword = fr3.text_input("關鍵字 / 檔名", placeholder="搜尋檔名或標籤", key="file_keyword")
+    filtered_files = filter_file_records(
+        file_records,
+        project_ref=file_project,
+        file_type=file_type,
+        keyword=file_keyword,
+    )
+    st.metric("已登記檔案", len(filtered_files))
+    if not filtered_files:
+        st.info("尚未有已登記的檔案；於「圖紙分析」或「知識匯入」上載檔案後會自動登記。")
+    for record in filtered_files[:200]:
+        type_label = FILE_TYPE_LABELS_ZH.get(record.file_type, record.file_type)
+        provider_label = STORAGE_PROVIDER_LABELS_ZH.get(record.storage_provider, record.storage_provider)
+        with st.expander(f"[{type_label}] {record.original_file_name}"):
+            st.caption("檔案已登記 · 原檔儲存：" + provider_label)
+            bits = []
+            if record.project_ref:
+                bits.append(f"工程：{record.project_ref}")
+            if record.size_bytes:
+                bits.append(f"大小：{record.size_bytes // 1024} KB" if record.size_bytes >= 1024 else f"大小：{record.size_bytes} bytes")
+            if record.source_module:
+                bits.append(f"來源模組：{record.source_module}")
+            if bits:
+                st.caption(" · ".join(bits))
+            if record.tags:
+                st.caption("標籤：" + "、".join(record.tags))
+            links = {
+                "工程記憶": record.linked_memory_id,
+                "圖紙文件": record.linked_drawing_doc_id,
+                "知識來源": record.linked_knowledge_source_id,
+            }
+            active_links = {k: v for k, v in links.items() if v}
+            if active_links:
+                with st.expander("相關連結編號", expanded=False):
+                    for label, value in active_links.items():
+                        st.caption(f"{label}：{value}")
 
 
 render_product_footer()

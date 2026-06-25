@@ -66,3 +66,12 @@ Ask AICOS 會按問題及 `project_ref` 擷取相關工程記憶、未完成跟�
 - **Vector DB**：資料量及文件抽取流程穩定後，可在保留 `RagChunk`／retriever contract 下加入 embeddings、hybrid search 及版本化索引。
 
 所有安全、法例及合規決定仍須核對最新香港官方文件，並由安全主任、合資格人士或負責地盤管理人員覆核。
+
+## Phase 6.1 / 6.3 / 6.4 功能強化
+
+本階段加強上載檔案、記錄搜尋及知識／PDF 匯入，仍以 JSONL fallback 運作，未引入權限、登入或多租戶存取控制。
+
+- **檔案登記（6.1）**：`utils/file_storage_models.py`、`utils/file_storage.py`、`utils/file_registry.py` 為上載相片／圖紙／PDF／知識檔案建立 metadata 層，存於 git-ignored 的 `streamlit-app/data/file_registry.jsonl`。只保存 metadata（不含檔案二進位），`local_runtime` 為現階段儲存，Google Drive 預留 `drive_file_id`／`drive_web_url` hook 但不接 OAuth。正常介面只顯示「檔案已登記」「原檔儲存：本機暫存 / Drive-ready」，不顯示本機路徑。圖紙分析上載會自動登記。
+- **記錄統一搜尋（6.3）**：`utils/records_filters.py`、`utils/records_search.py` 提供純函式 `build_unified_record_index`／`search_unified_records`，跨工程記憶、跟進、知識來源、RAG 片段、圖紙文件、圖紙頁面、CAD/BIM 交接及檔案登記搜尋。`pages/11_Records.py` 新增「全部記錄搜尋」「RAG 片段」「檔案登記」分頁。缺欄位或損壞 JSONL 不會中斷。
+- **知識／PDF／RAG 匯入（6.4）**：`utils/pdf_text_extractor.py`、`utils/knowledge_ingestion.py`、`utils/rag_persistence.py` 及 `pages/13_Knowledge_Ingestion.py` 讓使用者上載 PDF／TXT／MD／DOCX，抽取可選取文字並按頁切成 `RagChunk`（保留 `page_number`／`source_file_name`），存於獨立的 `ingested_knowledge.jsonl`／`ingested_rag_chunks.jsonl`，避免被知識索引重建覆蓋。掃描／無文字 PDF 會降級為 metadata-only 知識來源並提示改用 OCR／可選取文字版本，不加入重型 OCR 依賴。
+- **問 AICOS 文件脈絡**：`utils/ask_intent_router.py` 新增 `pdf_question`／`knowledge_document_question`／`records_search_question` 意圖；`utils/ask_context_bridge.py` 會為文件問題引用已匯入知識／RAG 片段及檔案 metadata，並在只有 metadata 時清楚說明未能確認全文內容、建議補充 OCR／可選取文字 PDF，不被一般安全 fallback 蓋過。

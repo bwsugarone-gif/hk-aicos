@@ -9,6 +9,9 @@ INTENT_LABELS = {
     "recent_image_question": "最近相片跟進",
     "drawing_question": "圖紙分析查詢",
     "cad_bim_handoff_question": "CAD/BIM 交接查詢",
+    "pdf_question": "PDF 文件查詢",
+    "knowledge_document_question": "知識文件查詢",
+    "records_search_question": "記錄搜尋查詢",
     "project_memory_question": "工程記憶查詢",
     "followup_question": "跟進事項查詢",
     "safety_definition_question": "安全定義 / 知識查詢",
@@ -28,6 +31,12 @@ _DRAWING_TERMS = (
     "drawing", "sheet", "缺資料", "缺圖", "site verify", "現場核實", "走位",
     "哪頁", "邊頁", "幾頁", "尺寸", "標高", "開口位",
 )
+_PDF_TERMS = ("pdf", "份 pdf", "呢份 pdf", "這份 pdf")
+_DOCUMENT_TERMS = (
+    "文件", "份文件", "呢份文件", "這份文件", "哩份文件", "文檔", "document",
+    "報告", "份報告", "章節", "全文", "文本", "上載過嘅文件", "上傳的文件",
+)
+_RECORDS_SEARCH_TERMS = ("搵返記錄", "搜尋記錄", "記錄搜尋", "搵晒", "所有記錄")
 _UNSAFE_BEHAVIOUR_TERMS = ("有冇不安全行為", "有沒有不安全行為", "不安全行為")
 _DEFINITION_MARKERS = ("定義", "乜嘢係", "咩係", "什麼是", "甚麼是", "點定義", "有咩要求", "有什麼要求")
 _SAFETY_TOPICS = (
@@ -71,6 +80,16 @@ def classify_ask_intent(question: str, has_recent_upload: bool = False) -> AskIn
         return _intent("cad_bim_handoff_question", [*cad_bim_hits, *drawing_hits])
     if drawing_hits:
         return _intent("drawing_question", drawing_hits)
+
+    pdf_hits = _hits(text, _PDF_TERMS)
+    if pdf_hits:
+        return _intent("pdf_question", [*pdf_hits, *_hits(text, _DOCUMENT_TERMS)])
+    document_hits = _hits(text, _DOCUMENT_TERMS)
+    if document_hits:
+        return _intent("knowledge_document_question", document_hits)
+    records_search_hits = _hits(text, _RECORDS_SEARCH_TERMS)
+    if records_search_hits:
+        return _intent("records_search_question", records_search_hits)
 
     legal_hits = _hits(text, _LEGAL_TERMS)
     if legal_hits:

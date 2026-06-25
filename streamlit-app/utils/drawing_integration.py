@@ -8,6 +8,7 @@ no new persistence mechanism.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .drawing_models import ACTION_TYPE_LABELS_ZH, DrawingDocument
@@ -100,17 +101,65 @@ def create_followups_for_handoff(
     return created
 
 
+def register_drawing_source_file(
+    document: DrawingDocument,
+    *,
+    source_path: Any = None,
+    file_name: str | None = None,
+    memory_id: str | None = None,
+    persist: bool = True,
+    registry_path: Any = None,
+):
+    """Register the uploaded drawing file's metadata in the file registry.
+
+    Stores metadata only (no binary, no path exposed in the normal UI). Never
+    raises into the analysis flow — registration is best-effort.
+    """
+    from .file_registry import register_file
+    from .file_storage import build_file_metadata
+    from .file_storage_models import StoredFileRecord
+
+    name = file_name or document.source_file_name or "未命名圖紙"
+    ext = Path(str(name)).suffix.lower()
+    file_type = "drawing_pdf" if ext == ".pdf" else "drawing_image"
+    payload = build_file_metadata(
+        original_file_name=name,
+        source_module="drawing_analysis",
+        project_ref=document.project_ref,
+        local_runtime_path=source_path,
+        file_type=file_type,
+        tags=list(dict.fromkeys(["圖紙分析", *document.disciplines])),
+        linked_memory_id=memory_id,
+        linked_drawing_doc_id=document.document_id,
+        metadata={
+            "ingestion_status": document.ingestion_status,
+            "page_count": document.page_count,
+        },
+    )
+    if not persist:
+        return StoredFileRecord.from_dict(payload)
+    kwargs = {"path": registry_path} if registry_path is not None else {}
+    try:
+        return register_file(payload, **kwargs)
+    except Exception:
+        return None
+
+
 def save_drawing_analysis(
     document: DrawingDocument,
     *,
     persist: bool = True,
     memory_path: Any = None,
     followup_path: Any = None,
+    source_path: Any = None,
+    file_name: str | None = None,
+    registry_path: Any = None,
 ) -> dict[str, Any]:
     """Convenience: register memory + follow-ups for an analyzed document.
 
-    The drawing-store persistence happens in ``analyze_drawing``; this only adds
-    the cross-feature links.
+    The drawing-store persistence happens in ``analyze_drawing``; this adds the
+    cross-feature links and, when given the uploaded path, registers the source
+    file metadata in the file registry.
     """
     memory = register_drawing_memory(document, persist=persist, memory_path=memory_path)
     memory_id = getattr(memory, "memory_id", None)
@@ -120,4 +169,18 @@ def save_drawing_analysis(
         persist=persist,
         followup_path=followup_path,
     )
-    return {"memory": memory, "memory_id": memory_id, "followups": followups}
+    file_record = register_drawing_source_file(
+        document,
+        source_path=source_path,
+        file_name=file_name,
+        memory_id=memory_id,
+        persist=persist,
+        registry_path=registry_path,
+    )
+    return {
+        "memory": memory,
+        "memory_id": memory_id,
+        "followups": followups,
+        "file_record": file_record,
+        "file_id": getattr(file_record, "file_id", None),
+    }

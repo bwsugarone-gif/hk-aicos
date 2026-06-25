@@ -119,12 +119,17 @@ if submitted:
                     max_pages=int(page_limit),
                     depth=depth,
                 )
-                links = save_drawing_analysis(result.document)
+                links = save_drawing_analysis(
+                    result.document,
+                    source_path=saved_path,
+                    file_name=uploaded.name,
+                )
                 st.session_state["drawing_result"] = {
                     "document": result.document.to_dict(),
                     "pages": [page.to_dict() for page in result.pages],
                     "memory_id": links.get("memory_id"),
                     "followups": len(links.get("followups") or []),
+                    "file_registered": bool(links.get("file_id")),
                 }
             except Exception:
                 st.session_state["drawing_result"] = {"error": True}
@@ -243,6 +248,8 @@ elif result:
                 st.caption("參考：" + "、".join(item["references"]))
 
     st.markdown("### 儲存 / 建立跟進")
+    if result.get("file_registered"):
+        st.caption("檔案已登記 · 原檔儲存：本機暫存 / Drive-ready")
     if result.get("memory_id"):
         st.success(
             f"已自動儲存為工程記憶，並建立 {result.get('followups', 0)} 項跟進事項；"
