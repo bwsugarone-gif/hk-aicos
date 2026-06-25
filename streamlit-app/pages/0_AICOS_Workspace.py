@@ -86,6 +86,13 @@ compact_link_row((
     ("pages/11_Records.py", "🗂️ 地盤記錄"),
 ))
 
+with st.expander("🚦 試用 / 發佈就緒（內部）", expanded=False):
+    st.caption(
+        "AICOS 目前為本機 / Cloud 暫存試用模式，未啟用登入或權限；"
+        "正式多人使用前需接入 Supabase / Google Drive / 權限。"
+    )
+    st.page_link("pages/14_Release_Readiness.py", label="前往發佈就緒 / 客戶試用工作流程")
+
 provider_health = get_provider_health()
 st.caption(provider_health.user_message)
 if technical_diagnostics_enabled():

@@ -75,3 +75,11 @@ Ask AICOS 會按問題及 `project_ref` 擷取相關工程記憶、未完成跟�
 - **記錄統一搜尋（6.3）**：`utils/records_filters.py`、`utils/records_search.py` 提供純函式 `build_unified_record_index`／`search_unified_records`，跨工程記憶、跟進、知識來源、RAG 片段、圖紙文件、圖紙頁面、CAD/BIM 交接及檔案登記搜尋。`pages/11_Records.py` 新增「全部記錄搜尋」「RAG 片段」「檔案登記」分頁。缺欄位或損壞 JSONL 不會中斷。
 - **知識／PDF／RAG 匯入（6.4）**：`utils/pdf_text_extractor.py`、`utils/knowledge_ingestion.py`、`utils/rag_persistence.py` 及 `pages/13_Knowledge_Ingestion.py` 讓使用者上載 PDF／TXT／MD／DOCX，抽取可選取文字並按頁切成 `RagChunk`（保留 `page_number`／`source_file_name`），存於獨立的 `ingested_knowledge.jsonl`／`ingested_rag_chunks.jsonl`，避免被知識索引重建覆蓋。掃描／無文字 PDF 會降級為 metadata-only 知識來源並提示改用 OCR／可選取文字版本，不加入重型 OCR 依賴。
 - **問 AICOS 文件脈絡**：`utils/ask_intent_router.py` 新增 `pdf_question`／`knowledge_document_question`／`records_search_question` 意圖；`utils/ask_context_bridge.py` 會為文件問題引用已匯入知識／RAG 片段及檔案 metadata，並在只有 metadata 時清楚說明未能確認全文內容、建議補充 OCR／可選取文字 PDF，不被一般安全 fallback 蓋過。
+
+## Phase 6.5 / 6.6 發佈就緒與客戶試用
+
+為內部 / 客戶試用做準備，本階段加入釋出就緒檢查與試用工作流程，仍未實作登入 / 權限 / 多租戶（留待 Phase 6.2）。
+
+- **發佈就緒（6.5）**：`utils/release_gate.py` 提供可決定性的 `evaluate_release_gate()`，檢查核心頁面可編譯、功能模組就緒，並以「已設定 / 未設定」回報 `GEMINI_API_KEY`／`DEEPSEEK_API_KEY`／`TAVILY_API_KEY`／`AICOS_ADMIN_DIAGNOSTICS`（永不顯示金鑰值）。`pages/14_Release_Readiness.py` 顯示就緒分數、阻塞項目、提示、下一步建議及雲端冒煙測試清單；詳見 `docs/PHASE6_RELEASE_GATE.md`。
+- **客戶試用（6.6）**：`utils/trial_mode.py` 定義試用流程卡（A–G）、試用進度檢查及試用提示；`utils/demo_project.py` 在使用者按「建立 Demo 試用資料」時，建立可決定性、可重複、不含真實機密資料的示範項目 `AICOS-DEMO`（記憶、跟進、圖紙、CAD/BIM 交接、檔案、知識）。詳見 `docs/CLIENT_TRIAL_GUIDE.md`。
+- **Phase 6.2 預留**：記錄可預留 `team_id`／`role_hint`／`responsible_team`／`created_by`／`updated_by`／`visibility`／`trial_mode` 等欄位，但本階段不強制執行；登入 / 權限 / 多租戶留待 Phase 6.2。
